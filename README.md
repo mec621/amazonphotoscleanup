@@ -16,6 +16,7 @@ an undo log can restore them.
 npm install --ignore-scripts   # skips onnxruntime-node's binary download, which isn't needed
 npm run build                  # outputs dist/
 npm test
+npm run e2e                    # full scan → review → trash → undo against a mocked Amazon (needs `npx playwright install chromium` once)
 ```
 
 1. Go to `chrome://extensions`, turn on Developer mode, click **Load unpacked**, and pick `dist/`.
@@ -61,8 +62,9 @@ Models load lazily inside a Web Worker:
 
 Both can be turned off in Settings. Scoring then uses sharpness and exposure only, and grouping uses pHash only.
 
+**Claude tiebreaker (optional, off by default).** Turn it on in Settings and paste your own Anthropic API key. During a scan, every similar-shots group whose top two scores are within 5 points gets one call to Claude Opus 5.5. Only those two thumbnails are sent, with no names, dates or metadata. Claude's pick becomes the suggested keeper, with its reason shown in review. There are at most 200 calls per scan, each answer is cached, and answers are only reused while the group's top two stay the same. The key is stored in this browser's extension storage (`src/pipeline/tiebreak.ts`).
+
 ## Not done yet
 
-- Claude tiebreaker for close calls (Phase 5).
 - Videos.
 - Regions other than amazon.com.

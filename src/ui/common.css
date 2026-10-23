@@ -50,7 +50,7 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 button.danger { background: var(--trash); border-color: var(--trash); color: #fff; }
 button.small { padding: 2px 8px; font-size: 12px; }
 
-select, input[type='number'] {
+select, input[type='number'], input[type='password'] {
   font: inherit;
   padding: 4px 6px;
   border-radius: 6px;

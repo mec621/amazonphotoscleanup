@@ -77,6 +77,7 @@ const NUMBERS: { key: NumKey; label: string; step: number; min: number; max: num
 const TOGGLES: { key: BoolKey; label: string }[] = [
   { key: 'useEmbeddings', label: 'Embedding + aesthetic model (CLIP, ~90 MB, downloaded once)' },
   { key: 'useFaces', label: 'Face model for eyes open and smiles (~4 MB)' },
+  { key: 'claudeTiebreaker', label: 'Ask Claude to settle close calls (your API key)' },
 ];
 
 export function SettingsForm({ settings, onChange }: { settings: Settings; onChange: (s: Settings) => void }) {
@@ -94,6 +95,22 @@ export function SettingsForm({ settings, onChange }: { settings: Settings; onCha
           {t.label}
         </label>
       ))}
+      {settings.claudeTiebreaker && (
+        <label className="stack" style={{ gap: 4, fontSize: 13 }}>
+          Anthropic API key
+          <input
+            type="password"
+            autoComplete="off"
+            placeholder="sk-ant-…"
+            value={settings.anthropicApiKey}
+            onChange={(e) => onChange({ ...settings, anthropicApiKey: e.target.value.trim() })}
+          />
+          <small>
+            Stored in this browser's extension storage. For groups whose top two scores are within 5 points, only those two thumbnails are sent to Claude, during the
+            scan. Billed to this key.
+          </small>
+        </label>
+      )}
       <small>Changing the time window or turning a model on takes effect on the next scan. Thresholds apply immediately.</small>
     </div>
   );

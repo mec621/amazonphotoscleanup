@@ -16,7 +16,8 @@
     "https://cdn-lfs.huggingface.co/*",
     "https://cdn-lfs-us-1.huggingface.co/*",
     "https://cas-bridge.xethub.hf.co/*",
-    "https://storage.googleapis.com/*"
+    "https://storage.googleapis.com/*",
+    "https://api.anthropic.com/*"
   ],
   "content_scripts": [
     {

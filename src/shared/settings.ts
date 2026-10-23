@@ -9,6 +9,10 @@ export interface Settings {
   groupCap: number;
   useEmbeddings: boolean;
   useFaces: boolean;
+  /** Ask Claude to pick between the top two shots when their scores are close. Sends only those two thumbnails. */
+  claudeTiebreaker: boolean;
+  /** Your Anthropic API key, kept in this browser's extension storage. */
+  anthropicApiKey: string;
   /** Milliseconds to wait between Amazon API calls. */
   apiDelayMs: number;
   /** Items per trash/restore call. Hard max 50. */
@@ -24,6 +28,8 @@ export const DEFAULT_SETTINGS: Settings = {
   groupCap: 30,
   useEmbeddings: true,
   useFaces: true,
+  claudeTiebreaker: false,
+  anthropicApiKey: '',
   apiDelayMs: 300,
   trashBatchSize: 50,
   trashDelayMs: 2000,

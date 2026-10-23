@@ -5,6 +5,7 @@ import { analyzeCandidates } from '../../pipeline/analyze';
 import { restoreRun } from '../../pipeline/apply';
 import { loadGroups, loadScope, loadScopeSetting, saveScopeSetting, scopeLabel, summarize, type Summary } from '../../pipeline/library';
 import { scanAlbums, scanMetadata, type Progress } from '../../pipeline/scan';
+import { runTiebreaks } from '../../pipeline/tiebreak';
 import { DEFAULT_SETTINGS, loadSettings, saveSettings, type Settings } from '../../shared/settings';
 import type { Album, Scope, TrashRun } from '../../shared/types';
 import { ProgressBar, SelfTestPanel, SettingsForm } from '../components';
@@ -81,6 +82,12 @@ function App() {
       const res = await analyzeCandidates(a, items, settings, setProgress, ctrl.signal);
       if (res.failed) n.push(`${res.failed} thumbnails could not be analyzed.`);
       n.push(...res.warnings);
+      if (settings.claudeTiebreaker && settings.anthropicApiKey) {
+        const { groups } = await loadGroups(scope, settings);
+        const tb = await runTiebreaks(a, groups, settings.anthropicApiKey, setProgress, ctrl.signal);
+        if (tb.asked) n.push(`Claude settled ${tb.asked} close calls.`);
+        n.push(...tb.warnings);
+      }
       setNotes(n);
     } catch (e) {
       if ((e as Error).name === 'AbortError') setNotes(['Scan stopped. Scan again to resume where it left off.']);

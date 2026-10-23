@@ -1,7 +1,7 @@
-import { allFeatures, allItems } from '../db/store';
+import { allFeatures, allItems, getMeta } from '../db/store';
 import type { Settings } from '../shared/settings';
 import type { Features, Group, PhotoItem, Scope } from '../shared/types';
-import { buildGroups } from './group';
+import { buildGroups, type Tiebreaks } from './group';
 
 export function inScope(scope: Scope): (i: PhotoItem) => boolean {
   if (scope.kind === 'year') return (i) => i.year === scope.year;
@@ -18,8 +18,8 @@ export async function loadScope(scope: Scope): Promise<PhotoItem[]> {
 }
 
 export async function loadGroups(scope: Scope, settings: Settings): Promise<{ items: PhotoItem[]; features: Map<string, Features>; groups: Group[] }> {
-  const [items, features] = await Promise.all([loadScope(scope), allFeatures()]);
-  return { items, features, groups: buildGroups(items, features, settings) };
+  const [items, features, tiebreaks] = await Promise.all([loadScope(scope), allFeatures(), getMeta<Tiebreaks>('tiebreaks')]);
+  return { items, features, groups: buildGroups(items, features, settings, settings.claudeTiebreaker ? (tiebreaks ?? {}) : {}) };
 }
 
 export interface Summary {

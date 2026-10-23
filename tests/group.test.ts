@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeNode } from '../src/adapter/amazon';
 import { rejectsFor } from '../src/pipeline/apply';
-import { buildGroups, exactGroups, memberKey, nearCandidates, nearGroups } from '../src/pipeline/group';
+import { applyTiebreak, buildGroups, closeCallPair, exactGroups, memberKey, nearCandidates, nearGroups } from '../src/pipeline/group';
 import { scoreGroup } from '../src/pipeline/score';
 import { DEFAULT_SETTINGS } from '../src/shared/settings';
 import type { Decision, Features, PhotoItem } from '../src/shared/types';
@@ -140,5 +140,34 @@ describe('normalizeNode', () => {
     const item = normalizeNode({ id: 'n2', contentProperties: { contentDate: '2020-01-02T03:04:05.000Z' } });
     expect(new Date(item.capturedAt).toISOString()).toBe('2020-01-02T03:04:05.000Z');
     expect(item.md5).toBeNull();
+  });
+});
+
+describe('tiebreak', () => {
+  const items = [photo('a'), photo('b', { capturedAt: T0 + 1000 }), photo('c', { capturedAt: T0 + 2000 })];
+  // a and b nearly tie; c is clearly blurrier.
+  const fs = features(feat('a', { sharpness: 500 }), feat('b', { sharpness: 480 }), feat('c', { sharpness: 20 }));
+
+  it('finds the close call in capture order', () => {
+    const [g] = nearGroups(items, fs, DEFAULT_SETTINGS);
+    expect(closeCallPair(g)).toEqual(['a', 'b']);
+    const [clear] = nearGroups(items.slice(0, 1).concat(items[2]), fs, DEFAULT_SETTINGS);
+    expect(closeCallPair(clear)).toBeNull();
+  });
+
+  it("makes Claude's pick the keeper and explains both photos", () => {
+    const [g] = nearGroups(items, fs, DEFAULT_SETTINGS, undefined, { [`near:a`]: { pair: ['a', 'b'], winnerId: 'b', reason: 'eyes open' } });
+    expect(g.keepIds).toEqual(['b']);
+    expect(g.members.find((m) => m.id === 'b')!.reason).toBe("Claude's pick: eyes open");
+    expect(g.members.find((m) => m.id === 'a')!.reason).toMatch(/Claude preferred the other/);
+  });
+
+  it('ignores a stale answer and never drops a protected photo', () => {
+    const stale = nearGroups(items, fs, DEFAULT_SETTINGS, undefined, { 'near:a': { pair: ['a', 'c'], winnerId: 'c', reason: 'x' } })[0];
+    expect(stale.keepIds).toEqual(['a']);
+    const favItems = [photo('a', { favorite: true }), ...items.slice(1)];
+    const [g] = nearGroups(favItems, fs, DEFAULT_SETTINGS, undefined, { 'near:a': { pair: ['a', 'b'], winnerId: 'b', reason: 'x' } });
+    expect(g.keepIds.sort()).toEqual(['a', 'b']);
+    expect(applyTiebreak(g, { pair: ['a', 'b'], winnerId: 'b', reason: 'x' }).keepIds.sort()).toEqual(['a', 'b']);
   });
 });

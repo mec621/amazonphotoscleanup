@@ -100,18 +100,57 @@ export function nearClusters(items: PhotoItem[], features: Map<string, Features>
   return [...clusters.values()].filter((c) => c.length > 1);
 }
 
-export function nearGroups(items: PhotoItem[], features: Map<string, Features>, s: Settings, exact: Group[] = exactGroups(items)): Group[] {
+export function nearGroups(items: PhotoItem[], features: Map<string, Features>, s: Settings, exact: Group[] = exactGroups(items), tiebreaks: Tiebreaks = {}): Group[] {
   const extras = exactExtras(exact);
   const reps = items.filter((i) => !extras.has(i.id));
   return nearClusters(reps, features, s).map((members) => {
     const scored = scoreGroup(members, features);
-    return { id: `near:${members[0].id}`, kind: 'near' as const, ...scored, capturedAt: members[0].capturedAt };
+    const g: Group = { id: `near:${members[0].id}`, kind: 'near', ...scored, capturedAt: members[0].capturedAt };
+    const tb = tiebreaks[g.id];
+    return tb ? applyTiebreak(g, tb) : g;
   });
 }
 
-export function buildGroups(items: PhotoItem[], features: Map<string, Features>, s: Settings): Group[] {
+export function buildGroups(items: PhotoItem[], features: Map<string, Features>, s: Settings, tiebreaks: Tiebreaks = {}): Group[] {
   const exact = exactGroups(items);
-  return [...exact, ...nearGroups(items, features, s, exact)].sort((a, b) => b.capturedAt - a.capturedAt);
+  return [...exact, ...nearGroups(items, features, s, exact, tiebreaks)].sort((a, b) => b.capturedAt - a.capturedAt);
+}
+
+/** Claude's answer for one close call, keyed by group ID. */
+export interface Tiebreak {
+  /** The two photos compared, in capture order (sent as A, then B). */
+  pair: [string, string];
+  winnerId: string;
+  reason: string;
+}
+export type Tiebreaks = Record<string, Tiebreak>;
+
+/** Top two scores at most this far apart count as a close call. */
+export const CLOSE_CALL_POINTS = 5;
+
+/** The top two photos of a near group when their scores are within CLOSE_CALL_POINTS, else null. */
+export function closeCallPair(g: Group): [string, string] | null {
+  if (g.kind !== 'near' || g.members.length < 2) return null;
+  const [first, second] = [...g.members].sort((a, b) => b.score - a.score);
+  if (first.score - second.score > CLOSE_CALL_POINTS) return null;
+  const index = (id: string) => g.members.findIndex((m) => m.id === id);
+  return index(first.id) < index(second.id) ? [first.id, second.id] : [second.id, first.id];
+}
+
+/** Makes Claude's pick the keeper, if the answer is still about this group's current top two. */
+export function applyTiebreak(g: Group, tb: Tiebreak): Group {
+  if (closeCallPair(g)?.join() !== tb.pair.join()) return g;
+  const loserId = tb.pair.find((id) => id !== tb.winnerId)!;
+  const loser = g.members.find((m) => m.id === loserId)!;
+  const keep = new Set(g.keepIds);
+  keep.add(tb.winnerId);
+  if (!loser.protected) keep.delete(loserId);
+  const members = g.members.map((m) => {
+    if (m.id === tb.winnerId) return { ...m, reason: `Claude's pick: ${tb.reason}` };
+    if (m.id === loserId && !keep.has(m.id)) return { ...m, reason: 'Close call; Claude preferred the other shot' };
+    return m;
+  });
+  return { ...g, members, keepIds: [...keep] };
 }
 
 export function memberKey(g: Group): string {
