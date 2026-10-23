@@ -1,0 +1,57 @@
+export interface Settings {
+  /** Max seconds between two shots for them to be compared. 2..60. */
+  windowSeconds: number;
+  /** Max differing bits between perceptual hashes for a pair to count as similar. */
+  phashMaxBits: number;
+  /** Min cosine similarity between embeddings for a pair to count as similar. */
+  cosineMin: number;
+  /** Largest allowed near-duplicate group. */
+  groupCap: number;
+  useEmbeddings: boolean;
+  useFaces: boolean;
+  /** Milliseconds to wait between Amazon API calls. */
+  apiDelayMs: number;
+  /** Items per trash/restore call. Hard max 50. */
+  trashBatchSize: number;
+  /** Milliseconds to wait between trash/restore calls. */
+  trashDelayMs: number;
+}
+
+export const DEFAULT_SETTINGS: Settings = {
+  windowSeconds: 10,
+  phashMaxBits: 10,
+  cosineMin: 0.92,
+  groupCap: 30,
+  useEmbeddings: true,
+  useFaces: true,
+  apiDelayMs: 300,
+  trashBatchSize: 50,
+  trashDelayMs: 2000,
+};
+
+export const MAX_TRASH_BATCH = 50;
+
+export function clampSettings(s: Settings): Settings {
+  const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, Number.isFinite(v) ? v : lo));
+  return {
+    ...s,
+    windowSeconds: clamp(s.windowSeconds, 2, 60),
+    phashMaxBits: clamp(Math.round(s.phashMaxBits), 0, 32),
+    cosineMin: clamp(s.cosineMin, 0.5, 1),
+    groupCap: clamp(Math.round(s.groupCap), 2, 200),
+    apiDelayMs: clamp(s.apiDelayMs, 100, 10000),
+    trashBatchSize: clamp(Math.round(s.trashBatchSize), 1, MAX_TRASH_BATCH),
+    trashDelayMs: clamp(s.trashDelayMs, 500, 60000),
+  };
+}
+
+export async function loadSettings(): Promise<Settings> {
+  const { settings } = await chrome.storage.local.get('settings');
+  return clampSettings({ ...DEFAULT_SETTINGS, ...(settings ?? {}) });
+}
+
+export async function saveSettings(s: Settings): Promise<Settings> {
+  const clean = clampSettings(s);
+  await chrome.storage.local.set({ settings: clean });
+  return clean;
+}
