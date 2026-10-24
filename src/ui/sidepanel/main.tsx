@@ -34,7 +34,7 @@ function App() {
     // Offer every year back to the oldest indexed photo (or 30 years), not only years already scanned.
     const now = new Date().getFullYear();
     const oldest = Math.min(now - 30, ...all.map((i) => i.year).filter((y) => y > 1900));
-    setYears(Array.from({ length: now + 1 - oldest + 1 }, (_, i) => now + 1 - i));
+    setYears(Array.from({ length: now - oldest + 1 }, (_, i) => now - i));
     const { groups, items } = await loadGroups(sc, s);
     setSummary(items.length ? summarize(groups) : null);
     setLastRun((await allRuns())[0] ?? null);
@@ -74,6 +74,7 @@ function App() {
       const meta = await scanMetadata(a, scope.kind === 'year' ? scope : { kind: 'all' }, setProgress, ctrl.signal);
       const n: string[] = [];
       if (meta.skippedShared) n.push(`Skipped ${meta.skippedShared} photos uploaded by someone else.`);
+      if (meta.found === 0) n.push(`Amazon has no photos in ${scopeLabel(scope)}.`);
       try {
         await scanAlbums(a, setProgress, ctrl.signal);
       } catch (e) {
@@ -107,7 +108,7 @@ function App() {
     setBusy(true);
     setError(null);
     try {
-      const a = await adapter.ready();
+      const a = await adapter.current();
       const r = await restoreRun(a, lastRun, settings, setProgress);
       if (r.status !== 'restored') setError(r.error ?? 'Restore failed');
       await chrome.storage.local.set({ dataVersion: Date.now() });
@@ -135,7 +136,7 @@ function App() {
         <small>{indexed.toLocaleString()} photos indexed</small>
       </section>
 
-      <SelfTestPanel test={adapter.test} error={adapter.error} testing={adapter.testing} onRetry={() => adapter.ready().catch(() => {})} />
+      <SelfTestPanel test={adapter.test} error={adapter.error} testing={adapter.testing} onRetry={() => adapter.ready({ fresh: true }).catch(() => {})} />
 
       <section className="stack">
         <div className="row">
@@ -165,6 +166,7 @@ function App() {
           {scope.kind === 'album' && <small>Album scope scans the whole library index, then analyzes the album.</small>}
         </div>
         {progress && <ProgressBar progress={progress} />}
+        {adapter.waitMessage && <small className="warn">{adapter.waitMessage}</small>}
         {error && <div className="error">{error}</div>}
         {notes.map((n, i) => (
           <small key={i} className="warn">

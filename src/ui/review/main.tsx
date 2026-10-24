@@ -226,7 +226,7 @@ function App() {
       // Album photos are only protected if the album crawl worked; don't trash on a guess.
       const crawl = await getMeta<AlbumCrawl>('albumCrawl');
       if (!crawl?.ok) throw new Error(`Album protection isn't confirmed (${crawl?.reason ?? 'albums not read yet'}), so nothing was trashed. Run a scan from the side panel first.`);
-      const a = await adapter.ready();
+      const a = await adapter.ready({ fresh: true });
       const run = await applyTrash(a, rejects, settings, setProgress);
       setMessage(
         run.status === 'done'
@@ -247,7 +247,7 @@ function App() {
     if (!lastRun || !confirm(`Restore ${lastRun.trashedIds.length} photos from Amazon's trash?`)) return;
     setBusy(true);
     try {
-      const a = await adapter.ready();
+      const a = await adapter.current();
       const r = await restoreRun(a, lastRun, settings, setProgress);
       setMessage(r.status === 'restored' ? { text: `Restored ${lastRun.items.length} photos.` } : { text: r.error ?? 'Restore failed', error: true });
     } catch (e) {
@@ -320,6 +320,7 @@ function App() {
           </select>
         </div>
         {progress && <ProgressBar progress={progress} />}
+        {adapter.waitMessage && <small className="warn">{adapter.waitMessage}</small>}
         {message && <div className={message.error ? 'error' : 'ok'}>{message.text}</div>}
         {adapter.error && <div className="error">{adapter.error}</div>}
       </header>

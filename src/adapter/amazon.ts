@@ -13,6 +13,11 @@ const THUMB_HOST = 'https://thumbnails-photos.amazon.com/v1/thumbnail';
 /** The search API refuses offsets past roughly 10k, so large ranges are split. */
 export const SEARCH_OFFSET_CAP = 9000;
 export const SEARCH_PAGE_SIZE = 200;
+/** Amazon rate-limits search hardest, so searches are spaced further apart than other calls. */
+const SEARCH_MIN_INTERVAL_MS = 1000;
+/** On HTTP 429, wait this long before each retry (unless Amazon says otherwise): about 7.5 minutes in all. */
+const RATE_LIMIT_WAITS_MS = [30_000, 60_000, 120_000, 240_000];
+const MAX_API_DELAY_MS = 5000;
 const COMMON_PARAMS = { asset: 'ALL', tempLink: 'false', resourceVersion: 'V2', ContentType: 'JSON' };
 
 export class AmazonError extends Error {
@@ -121,6 +126,9 @@ type ThumbStrategy = 'direct' | 'relay' | 'redirect';
 
 export class AmazonAdapter {
   private lastCall = 0;
+  private lastSearch = 0;
+  /** Told when a call is waiting out a rate limit (with a message) and when the wait ends (null). */
+  onWait: ((message: string | null) => void) | null = null;
   private thumbStrategy: ThumbStrategy | null = null;
   ownerId = '';
 
@@ -169,20 +177,31 @@ export class AmazonAdapter {
   /** Throttled API call with retry on 429/5xx. Throws on anything else. */
   private async api<T>(method: RelayRequest['method'], path: string, params: Record<string, string | number> = {}, body?: unknown): Promise<T> {
     const url = `${this.base}${path}?${qs({ ...COMMON_PARAMS, ...params })}`;
+    const isSearch = path === '/search';
     for (let attempt = 0; ; attempt++) {
-      const wait = this.lastCall + this.apiDelayMs - Date.now();
+      const wait = Math.max(this.lastCall + this.apiDelayMs, isSearch ? this.lastSearch + Math.max(SEARCH_MIN_INTERVAL_MS, this.apiDelayMs) : 0) - Date.now();
       if (wait > 0) await sleep(wait);
       this.lastCall = Date.now();
+      if (isSearch) this.lastSearch = this.lastCall;
       const res = await this.relay({ url, method, body });
       if (res.ok) return res.json as T;
-      const retryable = res.status === 429 || res.status >= 500;
-      if (!retryable || attempt >= 3) {
-        const hint = res.status === 429 ? ' Amazon is rate-limiting requests; wait a few minutes before trying again.' : '';
+      const rateLimited = res.status === 429;
+      const retryable = rateLimited || res.status >= 500;
+      const maxRetries = rateLimited ? RATE_LIMIT_WAITS_MS.length : 3;
+      if (!retryable || attempt >= maxRetries) {
+        const hint = rateLimited ? ' Amazon is still rate-limiting after waiting about 7 minutes; leave it for 15–30 minutes, then try again.' : '';
         throw new AmazonError(`${method} ${path} failed: HTTP ${res.status} ${res.error ?? ''}${hint}`.trim(), res.status, res.json ?? res.text);
       }
-      // Honour Retry-After; otherwise back off 5s, 15s, 45s.
-      const retryAfter = Number(res.retryAfter);
-      await sleep(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 5000 * 3 ** attempt);
+      // Honour Retry-After; otherwise wait 30s, 1m, 2m, 4m on 429, and 5s, 15s, 45s on server errors.
+      const retryAfter = Number(res.retryAfter) * 1000;
+      const backoff = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : rateLimited ? RATE_LIMIT_WAITS_MS[attempt] : 5000 * 3 ** attempt;
+      if (rateLimited) {
+        // Stay slower for the rest of this session.
+        this.apiDelayMs = Math.min(MAX_API_DELAY_MS, this.apiDelayMs * 2);
+        this.onWait?.(`Amazon asked us to slow down. Waiting ${Math.round(backoff / 1000)}s, then retrying (attempt ${attempt + 2} of ${maxRetries + 1})…`);
+      }
+      await sleep(backoff);
+      this.onWait?.(null);
     }
   }
 

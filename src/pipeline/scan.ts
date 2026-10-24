@@ -80,7 +80,7 @@ function range(a: number, b: number): number[] {
  * Indexes photo metadata. Resumable: each search range records its offset as it goes.
  * Ranges whose photo count hasn't changed since they last finished are skipped.
  */
-export async function scanMetadata(adapter: AmazonAdapter, scope: Scope, onProgress: OnProgress, signal: AbortSignal): Promise<{ indexed: number; skippedShared: number }> {
+export async function scanMetadata(adapter: AmazonAdapter, scope: Scope, onProgress: OnProgress, signal: AbortSignal): Promise<{ indexed: number; skippedShared: number; found: number }> {
   await setMeta('ownerId', adapter.ownerId || (await adapter.loadOwnerId()));
   const parts = await plan(adapter, scope, onProgress);
   const known = new Map((await allPartitions()).map((p) => [p.key, p]));
@@ -126,7 +126,7 @@ export async function scanMetadata(adapter: AmazonAdapter, scope: Scope, onProgr
     await putPartition({ ...p, offset: count, done: true, scannedAt: Date.now() });
   }
   await setMeta('lastScanAt', Date.now());
-  return { indexed, skippedShared };
+  return { indexed, skippedShared, found: total };
 }
 
 /** Maps every photo to the albums it's in. Album photos are protected from trash. */

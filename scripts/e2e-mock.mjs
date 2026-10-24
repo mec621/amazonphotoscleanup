@@ -35,6 +35,7 @@ const nodes = [
 const thumbs = { p8: png(256, 192, (x, y) => (x ^ y) & 255), p1: png(256, 192, scene), p2: png(256, 192, blurred), p3: png(256, 192, (x, y) => scene(x, y) + 3), p4: png(256, 192, other), p4copy: png(256, 192, other), p5: png(256, 192, (x, y) => 255 - other(x, y)), p6: png(256, 192, (x, y) => 255 - other(x, y)), p7: png(256, 192, (x, y) => (x * y) % 255), x1: png(256, 192, scene) };
 const calls = [];
 const searches = [];
+let rateLimitedOnce = false;
 
 
 const ctx = await chromium.launchPersistentContext('', { channel: 'chromium', headless: true, args: [`--disable-extensions-except=${dist}`, `--load-extension=${dist}`] });
@@ -48,6 +49,11 @@ await ctx.route('https://www.amazon.com/**', async (route) => {
   const f = u.searchParams.get('filters') ?? '';
   calls.push(`${req.method()} ${u.pathname} ${f} sid=${req.headers()['x-amzn-sessionid']}`);
   if (u.pathname === '/drive/v1/search') searches.push(u.searchParams);
+  // Like the real account: Amazon rate-limits the extension's first search. It must wait and retry, not fail.
+  if (u.pathname === '/drive/v1/search' && req.headers()['x-amzn-sessionid'] && !rateLimitedOnce) {
+    rateLimitedOnce = true;
+    return route.fulfill({ status: 429, headers: { 'retry-after': '1' }, contentType: 'application/json', body: '{"message":"Rate exceeded"}' });
+  }
   const json = (o) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(o) });
   if (u.pathname === '/drive/v1/nodes' && f === 'isRoot:true') return json({ data: [{ id: 'root', ownerId: 'me' }] });
   if (u.pathname === '/drive/v1/nodes' && f.startsWith('kind:VISUAL_COLLECTION')) return json({ data: [{ id: 'al1', name: 'Trip', kind: 'VISUAL_COLLECTION' }] });
@@ -117,6 +123,7 @@ const trashed = () => nodes.filter((n) => n.status === 'TRASH').map((n) => n.id)
 assert.deepEqual(trashed(), ['p2', 'p3', 'p4copy', 'p6']);
 // The page's own call has no session header (the mock page doesn't send one); every extension call must.
 assert.equal(calls.filter((c) => c.includes('sid=undefined')).length, 1);
+assert.ok(rateLimitedOnce, 'the mock rate-limited one search and the scan recovered');
 // Every search after the page's own one reuses the web app's parameters.
 assert.ok(searches.length > 2 && searches.slice(1).every((p) => p.get('webapp') === 'yes'), 'extension copies the web app search parameters');
 
