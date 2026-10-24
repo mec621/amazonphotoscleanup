@@ -44,7 +44,8 @@ function bothEnds(year: number, month: number | undefined, total: number, ascend
 /** Search ranges small enough for the API's offset cap: whole years, months for big years, or both ends of a range. */
 export async function plan(adapter: Pick<AmazonAdapter, 'oldestYear' | 'countPhotos' | 'ascendingSortWorks'>, scope: Scope, onProgress: OnProgress): Promise<RangePlan[]> {
   const now = new Date().getUTCFullYear();
-  const years = scope.kind === 'year' ? [scope.year] : range(await adapter.oldestYear(), now);
+  // One year past today catches photos from cameras with a wrong clock.
+  const years = scope.kind === 'year' ? [scope.year] : range(await adapter.oldestYear(), now + 1);
   const out: RangePlan[] = [];
   for (const [i, year] of years.entries()) {
     onProgress({ phase: 'Counting photos', done: i, total: years.length, message: String(year) });
@@ -107,7 +108,8 @@ export async function scanMetadata(adapter: AmazonAdapter, scope: Scope, onProgr
       }
       const page = await adapter.searchPage({ year, month, sort, offset: p.offset });
       if (page.items.length === 0 && page.skippedShared === 0) break;
-      await putItems(page.items, key);
+      // File each photo under Amazon's year, so year scopes match what was searched.
+      await putItems(page.items.map((i) => ({ ...i, year })), key);
       page.items.forEach((i) => seen.add(i.id));
       skippedShared += page.skippedShared;
       indexed += page.items.length;
@@ -128,7 +130,18 @@ export async function scanMetadata(adapter: AmazonAdapter, scope: Scope, onProgr
 }
 
 /** Maps every photo to the albums it's in. Album photos are protected from trash. */
+export interface AlbumCrawl {
+  ok: boolean;
+  at: number;
+  reason?: string;
+}
+
+/**
+ * Maps every photo to the albums it's in. Album photos are protected from trash,
+ * so trashing stays blocked until a crawl has completed and looks plausible.
+ */
 export async function scanAlbums(adapter: AmazonAdapter, onProgress: OnProgress, signal: AbortSignal): Promise<Album[]> {
+  await setMeta('albumCrawl', { ok: false, at: Date.now(), reason: 'album crawl did not finish' } satisfies AlbumCrawl);
   const albums = await adapter.listAlbums();
   const membership = new Map<string, string[]>();
   for (const [i, album] of albums.entries()) {
@@ -140,5 +153,12 @@ export async function scanAlbums(adapter: AmazonAdapter, onProgress: OnProgress,
   }
   await updateAlbumMembership(membership);
   await setMeta('albums', albums);
+  // Albums that all come back empty more likely mean the children call broke than that they're empty.
+  const plausible = albums.length === 0 || membership.size > 0;
+  await setMeta('albumCrawl', {
+    ok: plausible,
+    at: Date.now(),
+    reason: plausible ? undefined : `all ${albums.length} albums came back empty`,
+  } satisfies AlbumCrawl);
   return albums;
 }

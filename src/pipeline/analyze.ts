@@ -26,9 +26,16 @@ export async function analyzeCandidates(adapter: AmazonAdapter, items: PhotoItem
   const worker = new Worker(new URL('../worker/features.worker.ts', import.meta.url), { type: 'module' });
   const pending = new Map<string, (r: WorkerResponse) => void>();
   worker.onmessage = (ev: MessageEvent<WorkerResponse>) => pending.get(ev.data.id)?.(ev.data);
+  // A crashed worker (e.g. out of memory) would otherwise leave every pending photo waiting forever.
+  let crashed: string | null = null;
+  worker.onerror = (ev) => {
+    crashed = `analysis worker crashed: ${ev.message || 'unknown error'}`;
+    for (const resolve of [...pending.values()]) resolve({ id: '', error: crashed });
+  };
   const extensionBase = chrome.runtime.getURL('/');
   const run = (req: WorkerRequest) =>
     new Promise<WorkerResponse>((resolve) => {
+      if (crashed) return resolve({ id: req.id, error: crashed });
       pending.set(req.id, (r) => {
         pending.delete(req.id);
         resolve(r);
@@ -42,6 +49,12 @@ export async function analyzeCandidates(adapter: AmazonAdapter, items: PhotoItem
   const lane = async () => {
     while (next < todo.length && !signal.aborted) {
       const item = todo[next++];
+      if (crashed) throw new Error(crashed);
+      // A model that stopped loading mid-run leaves nothing to do for photos already analyzed.
+      if (!needs(features.get(item.id), opts)) {
+        done++;
+        continue;
+      }
       try {
         const blob = await adapter.fetchThumbnail(item.id);
         const res = await run({ id: item.id, blob, extensionBase, ...opts, existing: features.get(item.id) });

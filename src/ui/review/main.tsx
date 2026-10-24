@@ -1,11 +1,11 @@
 import { StrictMode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { AmazonAdapter } from '../../adapter/amazon';
-import { allDecisions, allRuns, deleteDecision, putDecision } from '../../db/store';
+import { allDecisions, allRuns, deleteDecision, getMeta, putDecision } from '../../db/store';
 import { applyTrash, rejectsFor, restoreRun } from '../../pipeline/apply';
 import { memberKey } from '../../pipeline/group';
 import { loadGroups, loadScopeSetting, scopeLabel } from '../../pipeline/library';
-import type { Progress } from '../../pipeline/scan';
+import type { AlbumCrawl, Progress } from '../../pipeline/scan';
 import { DEFAULT_SETTINGS, loadSettings, type Settings } from '../../shared/settings';
 import type { Confidence, Decision, Group, PhotoItem, Scope, TrashRun } from '../../shared/types';
 import { ProgressBar } from '../components';
@@ -223,6 +223,9 @@ function App() {
     setBusy(true);
     setMessage(null);
     try {
+      // Album photos are only protected if the album crawl worked; don't trash on a guess.
+      const crawl = await getMeta<AlbumCrawl>('albumCrawl');
+      if (!crawl?.ok) throw new Error(`Album protection isn't confirmed (${crawl?.reason ?? 'albums not read yet'}), so nothing was trashed. Run a scan from the side panel first.`);
       const a = await adapter.ready();
       const run = await applyTrash(a, rejects, settings, setProgress);
       setMessage(
@@ -276,7 +279,7 @@ function App() {
           <button className="danger" onClick={apply} disabled={busy || !rejects.length}>
             Move {rejects.length.toLocaleString()} to trash
           </button>
-          {lastRun && lastRun.trashedIds.length > 0 && lastRun.status !== 'restored' && (
+          {lastRun && (lastRun.trashedIds.length > 0 || Boolean(lastRun.inFlightIds?.length)) && lastRun.status !== 'restored' && (
             <button onClick={undo} disabled={busy}>
               Undo last run ({lastRun.trashedIds.length})
             </button>

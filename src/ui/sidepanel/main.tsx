@@ -31,8 +31,10 @@ function App() {
     setIndexed(await itemCount());
     setAlbums((await getMeta<Album[]>('albums')) ?? []);
     const all = await loadScope({ kind: 'all' });
-    const ys = [...new Set(all.map((i) => i.year))].sort((a, b) => b - a);
-    setYears(ys.length ? ys : [new Date().getFullYear()]);
+    // Offer every year back to the oldest indexed photo (or 30 years), not only years already scanned.
+    const now = new Date().getFullYear();
+    const oldest = Math.min(now - 30, ...all.map((i) => i.year).filter((y) => y > 1900));
+    setYears(Array.from({ length: now + 1 - oldest + 1 }, (_, i) => now + 1 - i));
     const { groups, items } = await loadGroups(sc, s);
     setSummary(items.length ? summarize(groups) : null);
     setLastRun((await allRuns())[0] ?? null);
@@ -199,7 +201,7 @@ function App() {
             {new Date(lastRun.startedAt).toLocaleString()}: {lastRun.trashedIds.length} photos trashed, status {lastRun.status}
             {lastRun.error ? ` (${lastRun.error})` : ''}
           </small>
-          {lastRun.trashedIds.length > 0 && lastRun.status !== 'restored' && (
+          {(lastRun.trashedIds.length > 0 || Boolean(lastRun.inFlightIds?.length)) && lastRun.status !== 'restored' && (
             <div className="row">
               <button onClick={undo} disabled={busy}>
                 Undo last run

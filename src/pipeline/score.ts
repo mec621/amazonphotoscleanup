@@ -6,9 +6,17 @@ type Signal = keyof typeof WEIGHTS;
 /** Ties within this many points go to the higher-resolution photo. */
 const TIE_POINTS = 1;
 
+const RAW_EXTENSIONS = /\.(dng|cr2|cr3|nef|nrw|arw|srf|sr2|raf|orf|rw2|pef|srw|x3f|3fr|iiq|rwl|erf|mrw|kdc|dcr)$/i;
+
+/** RAW files usually sit next to a JPEG of the same moment; the RAW is the original, so never suggest trashing it. */
+export function isRaw(item: PhotoItem): boolean {
+  return RAW_EXTENSIONS.test(item.name) || /raw|x-adobe-dng|x-canon|x-nikon|x-sony|x-fuji|x-olympus|x-panasonic/i.test(item.contentType);
+}
+
 export function protectedReason(item: PhotoItem): string | null {
   if (item.favorite) return 'favorite';
   if (item.albumIds.length) return 'in an album';
+  if (isRaw(item)) return 'RAW original';
   return null;
 }
 

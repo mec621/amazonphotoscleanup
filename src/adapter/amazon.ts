@@ -64,7 +64,9 @@ export function normalizeNode(n: RawNode): PhotoItem {
   // Image details have been seen both at the top level and under contentProperties.
   const img = { ...cp.image, ...n.image };
   const uploadedAt = parseTime(n.createdDate);
-  const capturedAt = parseTime(img.dateTimeOriginal, cp.contentDate, img.dateTime, n.createdDate);
+  // Amazon's contentDate first: it is ISO with a timezone, while EXIF times are zone-less
+  // and would parse in the browser's zone, putting mixed photos hours apart.
+  const capturedAt = parseTime(cp.contentDate, img.dateTimeOriginal, img.dateTime, n.createdDate);
   const favorite = Boolean(n.settings?.favorite ?? n.isFavorite ?? n.favorite ?? n.labels?.includes('FAVORITE'));
   const albumIds = n.parentMap?.VISUAL_COLLECTION ?? [];
   return {
@@ -292,9 +294,12 @@ export class AmazonAdapter {
     const attempts: [ThumbStrategy, () => Promise<Blob>][] = [
       ['direct', async () => {
         // Extension pages with host permission can read cross-origin images directly.
-        const res = await fetch(direct, { credentials: 'include' });
-        if (!res.ok) throw new AmazonError(`thumbnail HTTP ${res.status}`, res.status);
-        return res.blob();
+        for (let attempt = 0; ; attempt++) {
+          const res = await fetch(direct, { credentials: 'include' });
+          if (res.ok) return res.blob();
+          if (res.status !== 429 || attempt >= 2) throw new AmazonError(`thumbnail HTTP ${res.status}`, res.status);
+          await sleep(5000 * (attempt + 1));
+        }
       }],
       ['relay', () => this.relayImage(direct)],
       ['redirect', () => this.relayImage(redirect)],
@@ -304,7 +309,7 @@ export class AmazonAdapter {
     for (const [strategy, run] of ordered) {
       try {
         const blob = await run();
-        if (!blob.type.startsWith('image/') && blob.size < 100) throw new AmazonError('thumbnail is not an image');
+        if (!blob.type.startsWith('image/') || blob.size < 100) throw new AmazonError(`thumbnail is not an image (${blob.type || 'no type'}, ${blob.size} bytes)`);
         this.thumbStrategy = strategy;
         return blob;
       } catch (e) {

@@ -59,23 +59,35 @@ export async function setMeta(key: string, value: unknown): Promise<void> {
   await (await db()).put('meta', value, key);
 }
 
+/** Stores photos, keeping album membership learned earlier (a re-scan must not drop protection). */
 export async function putItems(items: PhotoItem[], partition?: string): Promise<void> {
   const tx = (await db()).transaction('items', 'readwrite');
   const now = Date.now();
-  await Promise.all([...items.map((i) => tx.store.put({ ...i, scannedAt: now, partition })), tx.done]);
+  await Promise.all([
+    ...items.map(async (i) => {
+      const prev = await tx.store.get(i.id);
+      const albumIds = prev ? [...new Set([...prev.albumIds, ...i.albumIds])] : i.albumIds;
+      await tx.store.put({ ...i, albumIds, scannedAt: now, partition });
+    }),
+    tx.done,
+  ]);
 }
 
 export async function itemIdsInPartition(partition: string): Promise<string[]> {
   return (await db()).getAllKeysFromIndex('items', 'partition', partition);
 }
 
+/**
+ * Adds crawled album membership to each photo. Only ever adds: a photo once seen in
+ * an album stays protected, so a partial or broken crawl can't remove protection.
+ */
 export async function updateAlbumMembership(membership: Map<string, string[]>): Promise<void> {
   const tx = (await db()).transaction('items', 'readwrite');
   let cursor = await tx.store.openCursor();
   while (cursor) {
-    const albums = membership.get(cursor.value.id) ?? [];
     const current = cursor.value.albumIds;
-    if (albums.length !== current.length || albums.some((a) => !current.includes(a))) await cursor.update({ ...cursor.value, albumIds: albums });
+    const added = (membership.get(cursor.value.id) ?? []).filter((a) => !current.includes(a));
+    if (added.length) await cursor.update({ ...cursor.value, albumIds: [...current, ...added] });
     cursor = await cursor.continue();
   }
   await tx.done;

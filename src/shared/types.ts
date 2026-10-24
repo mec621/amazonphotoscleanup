@@ -90,6 +90,8 @@ export interface TrashRun {
   items: TrashRunItem[];
   /** IDs Amazon confirmed as trashed. */
   trashedIds: string[];
+  /** A batch sent to Amazon whose outcome isn't known yet (e.g. the tab closed mid-call). */
+  inFlightIds?: string[];
   status: 'running' | 'done' | 'failed' | 'restored' | 'restore-failed';
   error?: string;
   restoredAt?: number;
