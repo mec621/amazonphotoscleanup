@@ -24,6 +24,12 @@
       "matches": ["https://www.amazon.com/photos*", "https://photos.amazon.com/*"],
       "js": ["content.js"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.amazon.com/photos*", "https://photos.amazon.com/*"],
+      "js": ["recorder.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
     }
   ],
   "content_security_policy": {

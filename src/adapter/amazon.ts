@@ -116,11 +116,17 @@ export class AmazonAdapter {
   private thumbStrategy: ThumbStrategy | null = null;
   ownerId = '';
 
+  /** Query parameters of the web app's own last photo search, when the page has made one. */
+  readonly webSearchParams: Record<string, string> | null;
+
   private constructor(
     readonly tabId: number,
     readonly base: string,
     public apiDelayMs: number,
-  ) {}
+    readonly webSearchUrl: string | null,
+  ) {
+    this.webSearchParams = webSearchUrl ? Object.fromEntries(new URL(webSearchUrl).searchParams) : null;
+  }
 
   /** Finds the open Amazon Photos tab and checks the relay is alive. */
   static async connect(apiDelayMs: number): Promise<AmazonAdapter> {
@@ -135,7 +141,9 @@ export class AmazonAdapter {
     }
     if (!hello) throw new AmazonError('No answer from the Amazon Photos tab. Reload it and try again.');
     if (!hello.hasSession) throw new AmazonError('You do not appear to be signed in to Amazon in that tab.');
-    return new AmazonAdapter(tab.id!, `${hello.origin}/drive/v1`, apiDelayMs);
+    // Prefer the API base the web app itself uses for search.
+    const webBase = hello.webSearchUrl?.split('/search?')[0];
+    return new AmazonAdapter(tab.id!, webBase ?? `${hello.origin}/drive/v1`, apiDelayMs, hello.webSearchUrl ?? null);
   }
 
   private async relay(req: RelayRequest): Promise<RelayResponse> {
@@ -159,9 +167,12 @@ export class AmazonAdapter {
       if (res.ok) return res.json as T;
       const retryable = res.status === 429 || res.status >= 500;
       if (!retryable || attempt >= 3) {
-        throw new AmazonError(`${method} ${path} failed: HTTP ${res.status} ${res.error ?? ''}`.trim(), res.status, res.json ?? res.text);
+        const hint = res.status === 429 ? ' Amazon is rate-limiting requests; wait a few minutes before trying again.' : '';
+        throw new AmazonError(`${method} ${path} failed: HTTP ${res.status} ${res.error ?? ''}${hint}`.trim(), res.status, res.json ?? res.text);
       }
-      await sleep(2000 * 2 ** attempt);
+      // Honour Retry-After; otherwise back off 5s, 15s, 45s.
+      const retryAfter = Number(res.retryAfter);
+      await sleep(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 5000 * 3 ** attempt);
     }
   }
 
@@ -184,16 +195,22 @@ export class AmazonAdapter {
   }
 
   async searchRaw(opts: { year?: number; month?: number; offset: number; limit: number; sort?: 'ASC' | 'DESC' }): Promise<{ count: number; data: RawNode[] }> {
-    const res = await this.api<{ count?: number; data?: RawNode[] }>('GET', '/search', {
-      filters: this.photoFilter(opts.year, opts.month),
-      offset: opts.offset,
-      limit: opts.limit,
-      lowResThumbnail: 'true',
-      searchContext: 'customer',
-      sort: `['contentProperties.contentDate ${opts.sort ?? 'DESC'}']`,
-    });
+    const res = await this.api<{ count?: number; data?: RawNode[] }>('GET', '/search', this.searchParams(opts));
     if (!res || !Array.isArray(res.data)) throw new AmazonError('Search response has no data array', 0, res);
     return { count: res.count ?? res.data.length, data: res.data };
+  }
+
+  /** Our filters and paging on top of the web app's own search parameters when known, else documented defaults. */
+  searchParams(opts: { year?: number; month?: number; offset: number; limit: number; sort?: 'ASC' | 'DESC' }): Record<string, string | number> {
+    const ours = { filters: this.photoFilter(opts.year, opts.month), offset: opts.offset, limit: opts.limit };
+    if (!this.webSearchParams) {
+      return { ...ours, lowResThumbnail: 'true', searchContext: 'customer', sort: `['contentProperties.contentDate ${opts.sort ?? 'DESC'}']` };
+    }
+    const params: Record<string, string | number> = { ...this.webSearchParams, ...ours };
+    const sort = this.webSearchParams.sort;
+    if (!sort) params.sort = `['contentProperties.contentDate ${opts.sort ?? 'DESC'}']`;
+    else if (opts.sort === 'ASC') params.sort = sort.replace(/DESC/g, 'ASC');
+    return params;
   }
 
   async countPhotos(year?: number, month?: number): Promise<number> {
@@ -340,6 +357,11 @@ export class AmazonAdapter {
       }
     };
 
+    checks.push({
+      name: "Web app's own search",
+      ok: true,
+      detail: this.webSearchParams ? 'seen; copying its parameters' : 'not seen yet (scroll your photos once, then re-run); using built-in parameters',
+    });
     await run('Root node / owner ID', () => this.loadOwnerId(), (o) => `ownerId ${o.slice(0, 6)}…`);
     const search = await run('Photo search', () => this.searchRaw({ offset: 0, limit: 3 }), (r) => `${r.count.toLocaleString()} photos reported`);
     const sample = search?.data[0];
@@ -364,6 +386,6 @@ export class AmazonAdapter {
       checks.push({ name: 'Sample photo', ok: false, detail: 'search returned no photos' });
     }
     await run('Album list', () => this.listAlbums(), (a) => `${a.length} albums`);
-    return { ok: checks.every((c) => c.ok), checks, sample };
+    return { ok: checks.every((c) => c.ok), checks, sample: { webSearchUrl: this.webSearchUrl, node: sample } };
   }
 }

@@ -32,10 +32,11 @@ export default defineConfig({
         review: resolve(import.meta.dirname, 'src/ui/review/index.html'),
         background: resolve(import.meta.dirname, 'src/background/index.ts'),
         content: resolve(import.meta.dirname, 'src/content/index.ts'),
+        recorder: resolve(import.meta.dirname, 'src/content/recorder.ts'),
       },
       output: {
-        // background.js and content.js must have fixed names for the manifest.
-        entryFileNames: (chunk) => (chunk.name === 'background' || chunk.name === 'content' ? '[name].js' : 'assets/[name]-[hash].js'),
+        // Scripts the manifest names directly need fixed file names.
+        entryFileNames: (chunk) => (['background', 'content', 'recorder'].includes(chunk.name) ? '[name].js' : 'assets/[name]-[hash].js'),
       },
     },
   },

@@ -30,15 +30,20 @@ const node = (id, sec, md5, extra = {}) => ({ id, kind: 'FILE', name: `${id}.jpg
 const nodes = [node('p1', 0, 'a'), node('p2', 2, 'b'), node('p3', 4, 'c'), node('p4', 600, 'd'), node('p4copy', 600, 'd', { createdDate: t(9999) }), node('p5', 1200, 'e'), node('p6', 1200, 'e', { createdDate: t(9999) }), node('p7', 3000, 'f'), node('x1', 5, 'g', { ownerId: 'someone-else' })];
 const thumbs = { p1: png(256, 192, scene), p2: png(256, 192, blurred), p3: png(256, 192, (x, y) => scene(x, y) + 3), p4: png(256, 192, other), p4copy: png(256, 192, other), p5: png(256, 192, (x, y) => 255 - other(x, y)), p6: png(256, 192, (x, y) => 255 - other(x, y)), p7: png(256, 192, (x, y) => (x * y) % 255), x1: png(256, 192, scene) };
 const calls = [];
+const searches = [];
 
 
 const ctx = await chromium.launchPersistentContext('', { channel: 'chromium', headless: true, args: [`--disable-extensions-except=${dist}`, `--load-extension=${dist}`] });
 await ctx.route('https://www.amazon.com/**', async (route) => {
   const req = route.request();
   const u = new URL(req.url());
-  if (u.pathname.startsWith('/photos')) return route.fulfill({ contentType: 'text/html', body: '<html><body><script>document.cookie="session-id=123-456; path=/"</script>Amazon Photos (mock)</body></html>' });
+  if (u.pathname.startsWith('/photos')) return route.fulfill({ contentType: 'text/html', body: `<html><body><script>document.cookie="session-id=123-456; path=/";
+    // Like the real web app, the page runs its own photo search; the extension should copy its parameters.
+    fetch('/drive/v1/search?asset=ALL&filters=type%3A(PHOTOS)&limit=50&offset=0&sort=%5B%27contentProperties.contentDate+DESC%27%5D&webapp=yes');
+    </script>Amazon Photos (mock)</body></html>` });
   const f = u.searchParams.get('filters') ?? '';
   calls.push(`${req.method()} ${u.pathname} ${f} sid=${req.headers()['x-amzn-sessionid']}`);
+  if (u.pathname === '/drive/v1/search') searches.push(u.searchParams);
   const json = (o) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(o) });
   if (u.pathname === '/drive/v1/nodes' && f === 'isRoot:true') return json({ data: [{ id: 'root', ownerId: 'me' }] });
   if (u.pathname === '/drive/v1/nodes' && f.startsWith('kind:VISUAL_COLLECTION')) return json({ data: [{ id: 'al1', name: 'Trip', kind: 'VISUAL_COLLECTION' }] });
@@ -105,7 +110,10 @@ assert.equal(await review.locator('header .ok, header .error').first().innerText
 const trashed = () => nodes.filter((n) => n.status === 'TRASH').map((n) => n.id).sort();
 // p1 (sharpest) stays; p5 is in an album, so its copy p6 goes; x1 belongs to someone else.
 assert.deepEqual(trashed(), ['p2', 'p3', 'p4copy', 'p6']);
-assert.ok(calls.every((c) => !c.includes('sid=undefined')), 'every API call carries the session header');
+// The page's own call has no session header (the mock page doesn't send one); every extension call must.
+assert.equal(calls.filter((c) => c.includes('sid=undefined')).length, 1);
+// Every search after the page's own one reuses the web app's parameters.
+assert.ok(searches.length > 2 && searches.slice(1).every((p) => p.get('webapp') === 'yes'), 'extension copies the web app search parameters');
 
 await panel.reload();
 await panel.getByRole('button', { name: 'Undo last run' }).click();

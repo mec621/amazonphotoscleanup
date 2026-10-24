@@ -36,8 +36,9 @@ async function relay(req: RelayRequest): Promise<RelayResponse> {
       credentials: 'include',
     });
     const contentType = res.headers.get('content-type') ?? '';
+    const retryAfter = res.headers.get('retry-after') ?? undefined;
     if (req.responseType === 'base64') {
-      return { ok: res.ok, status: res.status, contentType, base64: res.ok ? toBase64(await res.arrayBuffer()) : undefined };
+      return { ok: res.ok, status: res.status, contentType, retryAfter, base64: res.ok ? toBase64(await res.arrayBuffer()) : undefined };
     }
     const text = await res.text();
     let json: unknown;
@@ -46,7 +47,7 @@ async function relay(req: RelayRequest): Promise<RelayResponse> {
     } catch {
       json = undefined;
     }
-    return { ok: res.ok, status: res.status, contentType, json, text: json === undefined ? text.slice(0, 2000) : undefined };
+    return { ok: res.ok, status: res.status, contentType, retryAfter, json, text: json === undefined ? text.slice(0, 2000) : undefined };
   } catch (e) {
     return { ok: false, status: 0, error: String(e) };
   }
@@ -54,7 +55,13 @@ async function relay(req: RelayRequest): Promise<RelayResponse> {
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === 'apc-hello') {
-    sendResponse({ origin: location.origin, href: location.href, hasSession: sessionId() !== null });
+    sendResponse({
+      origin: location.origin,
+      href: location.href,
+      hasSession: sessionId() !== null,
+      // The page's own latest photo search, left on the DOM by recorder.ts from the page's world.
+      webSearchUrl: document.documentElement.dataset.apcSearchUrl ?? null,
+    });
     return false;
   }
   if (msg?.type === 'apc-fetch') {
