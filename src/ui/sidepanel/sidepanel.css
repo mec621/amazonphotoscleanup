@@ -1,18 +1,6 @@
 .panel { display: flex; flex-direction: column; gap: var(--s3); padding: var(--s4); max-width: 480px; margin: 0 auto; }
 
 .panel-header { display: flex; align-items: center; gap: var(--s3); padding: var(--s1) var(--s1) var(--s2); }
-.logo {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  display: grid;
-  place-items: center;
-  font-size: 18px;
-  color: #fff;
-  background: linear-gradient(135deg, #3b82f6, #6366f1);
-  box-shadow: var(--shadow);
-  flex: none;
-}
 
 .tiles-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s2); }
 .stat { display: flex; flex-direction: column; gap: 2px; padding: var(--s3); border-radius: var(--radius-sm); background: var(--surface-2); }

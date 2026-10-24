@@ -14,18 +14,6 @@
 .filters select { height: 32px; font-size: 13px; }
 .topbar-status { display: flex; flex-direction: column; gap: var(--s2); padding-bottom: var(--s3); }
 
-.logo {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  display: grid;
-  place-items: center;
-  font-size: 18px;
-  color: #fff;
-  background: linear-gradient(135deg, #3b82f6, #6366f1);
-  box-shadow: var(--shadow);
-  flex: none;
-}
 
 .review-main { max-width: 1280px; margin: 0 auto; padding: var(--s6); display: flex; flex-direction: column; gap: var(--s4); }
 
@@ -86,10 +74,10 @@
   box-shadow: 0 1px 3px rgb(0 0 0 / 0.2);
 }
 .tile-badge { left: var(--s2); color: #fff; }
-.tile-badge.keep { background: #15803d; }
-.tile-badge.trash { background: #dc2626; }
-.tile-badge.protected { background: #4f46e5; }
-.tile-score { right: var(--s2); background: rgb(17 19 24 / 0.72); color: #fff; }
+.tile-badge.keep { background: #16a34a; }
+.tile-badge.trash { background: #e11d48; }
+.tile-badge.protected { background: #7c3aed; }
+.tile-score { right: var(--s2); background: rgb(9 9 11 / 0.7); color: #fff; backdrop-filter: blur(4px); }
 
 .tile-body { display: flex; flex-direction: column; gap: var(--s1); padding: var(--s3); }
 .reason { font-size: 13px; line-height: 1.4; color: var(--fg); min-height: 2.8em; }
