@@ -1,9 +1,9 @@
 import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { allRuns, clearAll, getMeta, itemCount } from '../../db/store';
+import { allRuns, clearAll, getMeta, itemCount, setMeta } from '../../db/store';
 import { analyzeCandidates } from '../../pipeline/analyze';
 import { restoreRun } from '../../pipeline/apply';
-import { loadGroups, loadScope, loadScopeSetting, saveScopeSetting, scopeLabel, summarize, type Summary } from '../../pipeline/library';
+import { analysisStats, loadGroups, loadScope, loadScopeSetting, saveScopeSetting, scopeLabel, summarize, type AnalysisStats, type Summary } from '../../pipeline/library';
 import { scanAlbums, scanMetadata, type Progress } from '../../pipeline/scan';
 import { runTiebreaks } from '../../pipeline/tiebreak';
 import { DEFAULT_SETTINGS, loadSettings, saveSettings, type Settings } from '../../shared/settings';
@@ -20,6 +20,7 @@ function App() {
   const [years, setYears] = useState<number[]>([]);
   const [indexed, setIndexed] = useState(0);
   const [summary, setSummary] = useState<Summary | null>(null);
+  const [stats, setStats] = useState<AnalysisStats | null>(null);
   const [progress, setProgress] = useState<Progress | null>(null);
   const [busy, setBusy] = useState(false);
   const [notes, setNotes] = useState<string[]>([]);
@@ -35,8 +36,15 @@ function App() {
     const now = new Date().getFullYear();
     const oldest = Math.min(now - 30, ...all.map((i) => i.year).filter((y) => y > 1900));
     setYears(Array.from({ length: now - oldest + 1 }, (_, i) => now - i));
-    const { groups, items } = await loadGroups(sc, s);
+    const { groups, items, features } = await loadGroups(sc, s);
     setSummary(items.length ? summarize(groups) : null);
+    setStats(items.length ? analysisStats(items, features, s.windowSeconds) : null);
+    // The last scan's messages survive a panel reload.
+    const last = await getMeta<{ notes: string[]; error: string | null }>('lastScanNotes');
+    if (last) {
+      setNotes(last.notes);
+      setError(last.error);
+    }
     setLastRun((await allRuns())[0] ?? null);
   }, []);
 
@@ -92,9 +100,14 @@ function App() {
         n.push(...tb.warnings);
       }
       setNotes(n);
+      await setMeta('lastScanNotes', { notes: n, error: null });
     } catch (e) {
-      if ((e as Error).name === 'AbortError') setNotes(['Scan stopped. Scan again to resume where it left off.']);
-      else setError(e instanceof Error ? e.message : String(e));
+      const stopped = (e as Error).name === 'AbortError';
+      const notes = stopped ? ['Scan stopped. Scan again to resume where it left off.'] : [];
+      const error = stopped ? null : e instanceof Error ? e.message : String(e);
+      setNotes(notes);
+      setError(error);
+      await setMeta('lastScanNotes', { notes, error });
     } finally {
       setProgress(null);
       setBusy(false);
@@ -188,6 +201,18 @@ function App() {
             <span>Suggested for trash</span>
             <b>{summary.suggested.toLocaleString()}</b>
           </div>
+          {stats && (
+            <div className="stats">
+              <span>Taken within {settings.windowSeconds}s of another photo</span>
+              <b>{stats.candidates.toLocaleString()}</b>
+              <span>…of those, analyzed for similarity</span>
+              <b>{stats.analyzed.toLocaleString()}</b>
+            </div>
+          )}
+          {stats && stats.candidates > stats.analyzed && <small className="warn">Similar-shot analysis isn't finished. Scan again to continue it.</small>}
+          {stats && stats.midnight > stats.total / 2 && (
+            <small className="warn">Most capture times are exactly midnight, so Amazon may only be giving dates, not times. Similar-shot grouping needs real times.</small>
+          )}
           <div className="row">
             <button className="primary" onClick={() => chrome.tabs.create({ url: chrome.runtime.getURL('src/ui/review/index.html') })}>
               Review

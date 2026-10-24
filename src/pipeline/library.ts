@@ -1,7 +1,7 @@
 import { allFeatures, allItems, getMeta } from '../db/store';
 import type { Settings } from '../shared/settings';
 import type { Features, Group, PhotoItem, Scope } from '../shared/types';
-import { buildGroups, type Tiebreaks } from './group';
+import { buildGroups, nearCandidates, type Tiebreaks } from './group';
 
 export function inScope(scope: Scope): (i: PhotoItem) => boolean {
   if (scope.kind === 'year') return (i) => i.year === scope.year;
@@ -44,6 +44,27 @@ export function summarize(groups: Group[]): Summary {
     s.suggested += rejects;
   }
   return s;
+}
+
+export interface AnalysisStats {
+  /** Photos taken within the time window of another photo: the only ones checked for similarity. */
+  candidates: number;
+  /** Of those, how many have been analyzed. */
+  analyzed: number;
+  /** Photos whose capture time is exactly midnight UTC: a sign of date-only timestamps. */
+  midnight: number;
+  total: number;
+}
+
+/** How far the similar-shot analysis got, so "0 similar groups" can be told apart from "never analyzed". */
+export function analysisStats(items: PhotoItem[], features: Map<string, Features>, windowSeconds: number): AnalysisStats {
+  const candidates = nearCandidates(items, windowSeconds);
+  return {
+    candidates: candidates.length,
+    analyzed: candidates.filter((i) => features.has(i.id)).length,
+    midnight: items.filter((i) => i.capturedAt > 0 && i.capturedAt % 86_400_000 === 0).length,
+    total: items.length,
+  };
 }
 
 export async function loadScopeSetting(): Promise<Scope> {
