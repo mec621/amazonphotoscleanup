@@ -20,10 +20,12 @@ export function ProgressBar({ progress }: { progress: Progress }) {
 
 export function SelfTestPanel({ test, error, testing, onRetry }: { test: SelfTestResult | null; error: string | null; testing: boolean; onRetry: () => void }) {
   const [copied, setCopied] = useState(false);
-  const status = testing ? 'Checking Amazon connection…' : error ? 'Not connected' : test?.ok ? 'Connected; self-test passed' : 'Not checked';
+  const warnings = test?.checks.filter((c) => !c.ok && c.optional).length ?? 0;
+  const passed = `Connected; self-test passed${warnings ? ` with ${warnings} warning${warnings > 1 ? 's' : ''}` : ''}`;
+  const status = testing ? 'Checking Amazon connection…' : error ? 'Not connected' : test?.ok ? passed : 'Not checked';
   return (
     <section className="stack">
-      <details open={Boolean(error)}>
+      <details open={Boolean(error) || warnings > 0}>
         <summary className={error ? 'error' : test?.ok ? 'ok' : undefined}>{status}</summary>
         <div className="stack" style={{ marginTop: 8 }}>
           {error && !test && <div className="error">{error}</div>}
@@ -31,7 +33,7 @@ export function SelfTestPanel({ test, error, testing, onRetry }: { test: SelfTes
             <ul className="checks">
               {test.checks.map((c) => (
                 <li key={c.name}>
-                  <span className={c.ok ? 'ok' : 'error'}>{c.ok ? '✓' : '✗'}</span>
+                  <span className={c.ok ? 'ok' : c.optional ? 'warn' : 'error'}>{c.ok ? '✓' : c.optional ? '!' : '✗'}</span>
                   <span>
                     {c.name} <small>{c.detail}</small>
                   </span>

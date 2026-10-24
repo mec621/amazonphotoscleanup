@@ -21,7 +21,7 @@ export function useAdapter() {
       const result = await a.selfTest();
       setTest(result);
       if (!result.ok) {
-        const failed = result.checks.filter((c) => !c.ok).map((c) => `${c.name}: ${c.detail}`);
+        const failed = result.checks.filter((c) => !c.ok && !c.optional).map((c) => `${c.name}: ${c.detail}`);
         throw new Error(`Self-test failed. Amazon may have changed its web API; nothing was scanned or trashed.\n${failed.join('\n')}`);
       }
       ref.current = a;

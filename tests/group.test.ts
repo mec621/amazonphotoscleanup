@@ -136,6 +136,11 @@ describe('normalizeNode', () => {
     expect(item.capturedAt).toBeGreaterThan(0);
   });
 
+  it('reads image details nested under contentProperties', () => {
+    const item = normalizeNode({ id: 'n3', contentProperties: { md5: 'm', image: { width: 3024, height: 4032, dateTimeOriginal: '2021:01:02 03:04:05' } } });
+    expect(item).toMatchObject({ width: 3024, height: 4032, year: 2021 });
+  });
+
   it('falls back to content date when EXIF time is missing', () => {
     const item = normalizeNode({ id: 'n2', contentProperties: { contentDate: '2020-01-02T03:04:05.000Z' } });
     expect(new Date(item.capturedAt).toISOString()).toBe('2020-01-02T03:04:05.000Z');

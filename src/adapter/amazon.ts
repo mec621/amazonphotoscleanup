@@ -38,13 +38,15 @@ export interface RawNode {
   createdDate?: string;
   parents?: string[];
   parentMap?: Record<string, string[]>;
-  contentProperties?: { size?: number; md5?: string; contentType?: string; contentDate?: string };
-  image?: { width?: number | string; height?: number | string; dateTimeOriginal?: string; dateTime?: string };
+  contentProperties?: { size?: number; md5?: string; contentType?: string; contentDate?: string; image?: RawImageInfo };
+  image?: RawImageInfo;
   settings?: { favorite?: boolean };
   isFavorite?: boolean;
   favorite?: boolean;
   labels?: string[];
 }
+
+type RawImageInfo = { width?: number | string; height?: number | string; dateTimeOriginal?: string; dateTime?: string };
 
 function parseTime(...candidates: (string | undefined)[]): number {
   for (const c of candidates) {
@@ -59,8 +61,10 @@ function parseTime(...candidates: (string | undefined)[]): number {
 
 export function normalizeNode(n: RawNode): PhotoItem {
   const cp = n.contentProperties ?? {};
+  // Image details have been seen both at the top level and under contentProperties.
+  const img = { ...cp.image, ...n.image };
   const uploadedAt = parseTime(n.createdDate);
-  const capturedAt = parseTime(n.image?.dateTimeOriginal, cp.contentDate, n.image?.dateTime, n.createdDate);
+  const capturedAt = parseTime(img.dateTimeOriginal, cp.contentDate, img.dateTime, n.createdDate);
   const favorite = Boolean(n.settings?.favorite ?? n.isFavorite ?? n.favorite ?? n.labels?.includes('FAVORITE'));
   const albumIds = n.parentMap?.VISUAL_COLLECTION ?? [];
   return {
@@ -69,8 +73,8 @@ export function normalizeNode(n: RawNode): PhotoItem {
     name: n.name ?? n.id,
     capturedAt,
     uploadedAt,
-    width: Number(n.image?.width ?? 0) || 0,
-    height: Number(n.image?.height ?? 0) || 0,
+    width: Number(img.width ?? 0) || 0,
+    height: Number(img.height ?? 0) || 0,
     size: cp.size ?? 0,
     md5: cp.md5 ?? null,
     contentType: cp.contentType ?? '',
@@ -100,6 +104,8 @@ export interface SelfTestCheck {
   name: string;
   ok: boolean;
   detail: string;
+  /** A failed optional check is a warning: it degrades results but doesn't block scanning. */
+  optional?: boolean;
 }
 
 export interface SelfTestResult {
@@ -116,6 +122,8 @@ export class AmazonAdapter {
   private thumbStrategy: ThumbStrategy | null = null;
   ownerId = '';
 
+  /** Set by the self-test: whether search honours an oldest-first sort. */
+  ascendingSortWorks = false;
   /** Query parameters of the web app's own last photo search, when the page has made one. */
   readonly webSearchParams: Record<string, string> | null;
 
@@ -219,13 +227,15 @@ export class AmazonAdapter {
 
   /** Year of the oldest photo, from a single ascending search. */
   async oldestYear(): Promise<number> {
+    // Without a working oldest-first sort, start early and let empty years count as zero.
+    if (!this.ascendingSortWorks) return 1990;
     const { data } = await this.searchRaw({ offset: 0, limit: 1, sort: 'ASC' });
     if (!data.length) return new Date().getUTCFullYear();
     return normalizeNode(data[0]).year;
   }
 
   /** Photos in one search range, pages of SEARCH_PAGE_SIZE. Skips anything another account owns. */
-  async searchPage(opts: { year?: number; month?: number; offset: number }): Promise<{ count: number; items: PhotoItem[]; skippedShared: number }> {
+  async searchPage(opts: { year?: number; month?: number; offset: number; sort?: 'ASC' | 'DESC' }): Promise<{ count: number; items: PhotoItem[]; skippedShared: number }> {
     const { count, data } = await this.searchRaw({ ...opts, limit: SEARCH_PAGE_SIZE });
     const items: PhotoItem[] = [];
     let skippedShared = 0;
@@ -369,7 +379,12 @@ export class AmazonAdapter {
       const item = normalizeNode(sample);
       checks.push({ name: 'Checksum (md5) in metadata', ok: Boolean(item.md5), detail: item.md5 ? 'present' : 'missing: exact-duplicate detection will not work' });
       checks.push({ name: 'Capture time in metadata', ok: item.capturedAt > 0, detail: item.capturedAt ? new Date(item.capturedAt).toISOString() : 'missing' });
-      checks.push({ name: 'Dimensions in metadata', ok: item.width > 0 && item.height > 0, detail: `${item.width}×${item.height}` });
+      checks.push({
+        name: 'Dimensions in metadata',
+        ok: item.width > 0 && item.height > 0,
+        detail: item.width > 0 ? `${item.width}×${item.height}` : 'missing; only used to break ties, so scanning can go ahead',
+        optional: true,
+      });
       checks.push({ name: 'Owner on items', ok: Boolean(sample.ownerId), detail: sample.ownerId === this.ownerId ? 'matches your account' : 'differs or missing' });
       await run(
         'Year filter',
@@ -381,11 +396,28 @@ export class AmazonAdapter {
         },
         (c) => `${c.toLocaleString()} photos in ${item.year}`,
       );
+      const asc = await run(
+        'Oldest-first sort',
+        async () => {
+          const first = (await this.searchRaw({ offset: 0, limit: 1, sort: 'ASC' })).data[0];
+          // The newest-first sample must not come first oldest-first too, unless the library has one photo.
+          if (!first || (first.id === sample.id && search!.count > 1) || normalizeNode(first).capturedAt > item.capturedAt) {
+            throw new AmazonError('oldest-first sort looks ignored');
+          }
+          this.ascendingSortWorks = true;
+          return normalizeNode(first).capturedAt;
+        },
+        (t) => `oldest photo ${new Date(t).toISOString().slice(0, 10)}`,
+      );
+      if (asc === undefined) {
+        checks[checks.length - 1].optional = true;
+        checks[checks.length - 1].detail += '; scanning still works unless a month has over 9,000 photos';
+      }
       await run('Thumbnail', () => this.fetchThumbnail(item.id), (b) => `${b.type}, ${(b.size / 1024).toFixed(1)} KB via ${this.thumbStrategy}`);
     } else if (search) {
       checks.push({ name: 'Sample photo', ok: false, detail: 'search returned no photos' });
     }
     await run('Album list', () => this.listAlbums(), (a) => `${a.length} albums`);
-    return { ok: checks.every((c) => c.ok), checks, sample: { webSearchUrl: this.webSearchUrl, node: sample } };
+    return { ok: checks.every((c) => c.ok || c.optional), checks, sample: { webSearchUrl: this.webSearchUrl, node: sample } };
   }
 }

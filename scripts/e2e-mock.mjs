@@ -27,8 +27,12 @@ const other = (x, y) => 128 + 100 * Math.sin((x * 3 + y) / 7);
 // --- mock library: p1..p3 burst (p2 blurry), p4 + p4copy exact dup, p5 in album (copy of p6), p7 lone, x1 shared by someone else
 const t = (s) => new Date(Date.UTC(2024, 6, 4, 12, 0, s)).toISOString();
 const node = (id, sec, md5, extra = {}) => ({ id, kind: 'FILE', name: `${id}.jpg`, ownerId: 'me', status: 'AVAILABLE', createdDate: t(sec + 100), contentProperties: { md5, size: 2e6, contentType: 'image/jpeg', contentDate: t(sec) }, image: { width: 4000, height: 3000 }, ...extra });
-const nodes = [node('p1', 0, 'a'), node('p2', 2, 'b'), node('p3', 4, 'c'), node('p4', 600, 'd'), node('p4copy', 600, 'd', { createdDate: t(9999) }), node('p5', 1200, 'e'), node('p6', 1200, 'e', { createdDate: t(9999) }), node('p7', 3000, 'f'), node('x1', 5, 'g', { ownerId: 'someone-else' })];
-const thumbs = { p1: png(256, 192, scene), p2: png(256, 192, blurred), p3: png(256, 192, (x, y) => scene(x, y) + 3), p4: png(256, 192, other), p4copy: png(256, 192, other), p5: png(256, 192, (x, y) => 255 - other(x, y)), p6: png(256, 192, (x, y) => 255 - other(x, y)), p7: png(256, 192, (x, y) => (x * y) % 255), x1: png(256, 192, scene) };
+const nodes = [
+  // Like the real account: the first photo search returns has no dimensions at all.
+  node('p8', 7000, 'h', { image: undefined }),
+  // ...and some photos keep image details under contentProperties.
+  node('p1', 0, 'a', { image: undefined, contentProperties: { md5: 'a', size: 2e6, contentType: 'image/jpeg', contentDate: t(0), image: { width: 4000, height: 3000 } } }), node('p2', 2, 'b'), node('p3', 4, 'c'), node('p4', 600, 'd'), node('p4copy', 600, 'd', { createdDate: t(9999) }), node('p5', 1200, 'e'), node('p6', 1200, 'e', { createdDate: t(9999) }), node('p7', 3000, 'f'), node('x1', 5, 'g', { ownerId: 'someone-else' })];
+const thumbs = { p8: png(256, 192, (x, y) => (x ^ y) & 255), p1: png(256, 192, scene), p2: png(256, 192, blurred), p3: png(256, 192, (x, y) => scene(x, y) + 3), p4: png(256, 192, other), p4copy: png(256, 192, other), p5: png(256, 192, (x, y) => 255 - other(x, y)), p6: png(256, 192, (x, y) => 255 - other(x, y)), p7: png(256, 192, (x, y) => (x * y) % 255), x1: png(256, 192, scene) };
 const calls = [];
 const searches = [];
 
@@ -88,7 +92,8 @@ await panel.getByText('Connected; self-test passed').waitFor({ timeout: 20000 })
 await panel.getByRole('button', { name: 'Scan' }).click();
 await panel.getByRole('button', { name: 'Review' }).waitFor({ timeout: 60000 });
 const panelText = (await panel.locator('body').innerText()).replace(/\s+/g, ' ');
-assert.match(panelText, /8 photos indexed/);
+assert.match(panelText, /9 photos indexed/);
+assert.match(panelText, /Dimensions in metadata missing; only used to break ties/);
 assert.match(panelText, /Skipped 1 photos uploaded by someone else/);
 assert.match(panelText, /Exact duplicates 2 Photos in similar groups 3 Similar groups 1 Suggested for trash 4/);
 

@@ -2,11 +2,16 @@ import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import type { Decision, Features, PhotoItem, TrashRun } from '../shared/types';
 
 export interface Partition {
-  /** "2019", or "2019-07" when a year is too big for one search range. */
+  /** "2019"; "2019-07" when a year is too big for one search range; "2019-desc"/"2019-asc" when it's read from both ends. */
   key: string;
   year: number;
   month?: number;
+  /** Read newest-first or oldest-first; only set when a range is read from both ends. */
+  sort?: 'ASC' | 'DESC';
+  /** Photos to read from this range. */
   count: number;
+  /** Photos Amazon reported for the whole range when planned; a change means re-read it. */
+  total?: number;
   offset: number;
   done: boolean;
   scannedAt?: number;
