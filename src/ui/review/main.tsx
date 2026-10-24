@@ -8,7 +8,7 @@ import { loadGroups, loadScopeSetting, scopeLabel } from '../../pipeline/library
 import type { AlbumCrawl, Progress } from '../../pipeline/scan';
 import { DEFAULT_SETTINGS, loadSettings, type Settings } from '../../shared/settings';
 import type { Confidence, Decision, Group, PhotoItem, Scope, TrashRun } from '../../shared/types';
-import { ProgressBar } from '../components';
+import { Callout, ProgressBar } from '../components';
 import { useAdapter } from '../useAdapter';
 import '../common.css';
 import './review.css';
@@ -55,7 +55,7 @@ function Thumb({ id, adapter }: { id: string; adapter: () => Promise<AmazonAdapt
       io.disconnect();
     };
   }, [id, adapter]);
-  return <div ref={ref}>{src ? <img className="thumb" src={src} alt="" /> : <div className="thumb" />}</div>;
+  return <div ref={ref}>{src ? <img className="thumb" src={src} alt="" /> : <div className="thumb loading" />}</div>;
 }
 
 // ---------------------------------------------------------------------------
@@ -76,60 +76,82 @@ function GroupRow({ group, items, decision, adapter, onDecide }: { group: Group;
   const rejects = group.members.filter((m) => !draft.includes(m.id) && !m.protected).length;
   const first = items.get(group.members[0].id);
 
+  const date = first ? new Date(first.capturedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
+
   return (
-    <div className={`group ${valid?.status ?? ''}`}>
-      <div className="group-head">
-        <span className="badge">{group.kind === 'exact' ? 'Exact duplicates' : 'Similar shots'}</span>
-        <span className={`badge ${group.confidence}`}>{group.confidence} confidence</span>
-        <small>
-          {first ? new Date(first.capturedAt).toLocaleString() : ''} · {group.members.length} photos · {rejects} to trash
-        </small>
-        <span className="spacer" />
-        {valid ? (
-          <>
-            <b className={valid.status === 'accepted' ? 'ok' : 'muted'}>{valid.status === 'accepted' ? 'Accepted' : 'Skipped'}</b>
-            <button className="small" onClick={() => onDecide(null)}>
-              Undo
-            </button>
-          </>
-        ) : (
-          <>
-            <button className="small primary" onClick={() => decide('accepted')}>
-              Accept
-            </button>
-            <button className="small" onClick={() => decide('accepted', group.members.map((m) => m.id))}>
-              Keep all
-            </button>
-            <button className="small" onClick={() => decide('skipped')}>
-              Skip
-            </button>
-          </>
-        )}
-      </div>
+    <article className={`group-card ${valid?.status ?? ''}`}>
+      <header className="group-head">
+        <div className="group-info">
+          <div className="row" style={{ gap: 'var(--s2)' }}>
+            <span className="pill">{group.kind === 'exact' ? 'Exact duplicates' : 'Similar shots'}</span>
+            <span className={`pill ${CONFIDENCE_TONE[group.confidence]}`}>{CONFIDENCE_LABEL[group.confidence]}</span>
+          </div>
+          <span className="subtle">
+            {date} · {group.members.length} photos · {rejects} to trash
+          </span>
+        </div>
+        <div className="row">
+          {valid ? (
+            <>
+              <span className={`pill ${valid.status === 'accepted' ? 'ok' : ''}`}>
+                <span className="dot" />
+                {valid.status === 'accepted' ? 'Accepted' : 'Skipped'}
+              </span>
+              <button className="small ghost" onClick={() => onDecide(null)}>
+                Undo
+              </button>
+            </>
+          ) : (
+            <>
+              <button className="small ghost" onClick={() => decide('skipped')}>
+                Skip
+              </button>
+              <button className="small" onClick={() => decide('accepted', group.members.map((m) => m.id))}>
+                Keep all
+              </button>
+              <button className="small primary" onClick={() => decide('accepted')}>
+                Accept
+              </button>
+            </>
+          )}
+        </div>
+      </header>
       <div className="tiles">
         {group.members.map((m) => {
           const it = items.get(m.id);
           const keep = draft.includes(m.id) || Boolean(m.protected);
+          const badge = m.protected ? 'Protected' : keep ? 'Keep' : 'Trash';
           return (
-            <button key={m.id} className={`tile ${keep ? 'keep' : 'reject'} ${m.protected ? 'protected' : ''}`} onClick={() => toggle(m.id)} title={m.protected ? `Protected: ${m.protected}` : 'Click to keep or trash'}>
-              <Thumb id={m.id} adapter={adapter} />
-              <div className="meta">
-                <span className="label">{keep ? (m.protected ? 'Keep (protected)' : 'Keep') : 'Trash'}</span>
-                {group.kind === 'near' && <span>{m.score}</span>}
+            <button
+              key={m.id}
+              className={`tile ${keep ? 'keep' : 'reject'} ${m.protected ? 'protected' : ''}`}
+              onClick={() => toggle(m.id)}
+              title={m.protected ? `Protected: ${m.protected}` : keep ? 'Click to trash' : 'Click to keep'}
+            >
+              <div className="thumb-wrap">
+                <Thumb id={m.id} adapter={adapter} />
+                <span className={`tile-badge ${m.protected ? 'protected' : keep ? 'keep' : 'trash'}`}>{badge}</span>
+                {group.kind === 'near' && <span className="tile-score num">{m.score}</span>}
               </div>
-              <div className="reason">{m.reason}</div>
-              {it && (
-                <small>
-                  {it.width}×{it.height} · {(it.size / 1e6).toFixed(1)} MB
-                </small>
-              )}
+              <div className="tile-body">
+                <p className="reason">{m.reason}</p>
+                {it && (
+                  <span className="subtle num">
+                    {it.width ? `${it.width}×${it.height} · ` : ''}
+                    {(it.size / 1e6).toFixed(1)} MB
+                  </span>
+                )}
+              </div>
             </button>
           );
         })}
       </div>
-    </div>
+    </article>
   );
 }
+
+const CONFIDENCE_LABEL: Record<Confidence, string> = { high: 'High confidence', medium: 'Medium confidence', low: 'Low confidence' };
+const CONFIDENCE_TONE: Record<Confidence, string> = { high: 'ok', medium: 'accent', low: 'warn' };
 
 type KindFilter = 'all' | 'exact' | 'near';
 type StatusFilter = 'all' | 'undecided' | 'accepted' | 'skipped';
@@ -264,34 +286,45 @@ function App() {
   const shown = filtered.slice(page * PAGE, page * PAGE + PAGE);
   const undecidedExact = groups.filter((g) => g.kind === 'exact' && statusOf(g) === 'undecided').length;
 
+  const canUndo = lastRun && (lastRun.trashedIds.length > 0 || Boolean(lastRun.inFlightIds?.length)) && lastRun.status !== 'restored';
+
   return (
     <>
-      <header className="toolbar">
-        <div className="row">
-          <h1>Review · {scopeLabel(scope)}</h1>
-          <small>
-            {groups.length.toLocaleString()} groups · {filtered.length.toLocaleString()} shown
-          </small>
-          <span style={{ flex: 1 }} />
-          <button onClick={approveExact} disabled={busy || !undecidedExact}>
-            Approve all exact duplicates ({undecidedExact})
-          </button>
-          <button className="danger" onClick={apply} disabled={busy || !rejects.length}>
-            Move {rejects.length.toLocaleString()} to trash
-          </button>
-          {lastRun && (lastRun.trashedIds.length > 0 || Boolean(lastRun.inFlightIds?.length)) && lastRun.status !== 'restored' && (
-            <button onClick={undo} disabled={busy}>
-              Undo last run ({lastRun.trashedIds.length})
+      <header className="topbar">
+        <div className="topbar-inner">
+          <div className="row" style={{ gap: 'var(--s3)' }}>
+            <div className="logo" aria-hidden>
+              ◧
+            </div>
+            <div>
+              <h1>Review</h1>
+              <span className="subtle num">
+                {scopeLabel(scope)} · {groups.length.toLocaleString()} groups
+              </span>
+            </div>
+          </div>
+          <span className="spacer" />
+          <div className="row">
+            {canUndo && (
+              <button className="ghost" onClick={undo} disabled={busy}>
+                Undo last run ({lastRun!.trashedIds.length})
+              </button>
+            )}
+            <button onClick={approveExact} disabled={busy || !undecidedExact}>
+              Approve exact duplicates ({undecidedExact})
             </button>
-          )}
+            <button className="danger" onClick={apply} disabled={busy || !rejects.length}>
+              Move {rejects.length.toLocaleString()} to trash
+            </button>
+          </div>
         </div>
-        <div className="row">
-          <select value={kind} onChange={(e) => setKind(e.target.value as KindFilter)}>
+        <div className="filters">
+          <select value={kind} onChange={(e) => setKind(e.target.value as KindFilter)} aria-label="Group type">
             <option value="all">All groups</option>
             <option value="exact">Exact duplicates</option>
             <option value="near">Similar shots</option>
           </select>
-          <select value={year} onChange={(e) => setYear(e.target.value === 'all' ? 'all' : Number(e.target.value))}>
+          <select value={year} onChange={(e) => setYear(e.target.value === 'all' ? 'all' : Number(e.target.value))} aria-label="Year">
             <option value="all">Any year</option>
             {years.map((y) => (
               <option key={y} value={y}>
@@ -299,47 +332,66 @@ function App() {
               </option>
             ))}
           </select>
-          <select value={minSize} onChange={(e) => setMinSize(Number(e.target.value))}>
+          <select value={minSize} onChange={(e) => setMinSize(Number(e.target.value))} aria-label="Group size">
             {[2, 3, 5, 10].map((n) => (
               <option key={n} value={n}>
                 {n}+ photos
               </option>
             ))}
           </select>
-          <select value={confidence} onChange={(e) => setConfidence(e.target.value as Confidence | 'all')}>
+          <select value={confidence} onChange={(e) => setConfidence(e.target.value as Confidence | 'all')} aria-label="Confidence">
             <option value="all">Any confidence</option>
             <option value="high">High confidence</option>
             <option value="medium">Medium confidence</option>
             <option value="low">Low confidence</option>
           </select>
-          <select value={status} onChange={(e) => setStatus(e.target.value as StatusFilter)}>
+          <select value={status} onChange={(e) => setStatus(e.target.value as StatusFilter)} aria-label="Status">
             <option value="undecided">Undecided</option>
             <option value="accepted">Accepted</option>
             <option value="skipped">Skipped</option>
             <option value="all">Any status</option>
           </select>
+          <span className="spacer" />
+          <span className="subtle num">
+            {filtered.length.toLocaleString()} shown · click a photo to keep or trash it
+          </span>
         </div>
-        {progress && <ProgressBar progress={progress} />}
-        {adapter.waitMessage && <small className="warn">{adapter.waitMessage}</small>}
-        {message && <div className={message.error ? 'error' : 'ok'}>{message.text}</div>}
-        {adapter.error && <div className="error">{adapter.error}</div>}
+        {(progress || adapter.waitMessage || message || adapter.error) && (
+          <div className="topbar-status">
+            {progress && <ProgressBar progress={progress} />}
+            {adapter.waitMessage && <Callout tone="warn">{adapter.waitMessage}</Callout>}
+            {message && <Callout tone={message.error ? 'error' : 'ok'}>{message.text}</Callout>}
+            {adapter.error && <Callout tone="error">{adapter.error}</Callout>}
+          </div>
+        )}
       </header>
-      <main>
-        {loading && <p className="muted">Loading…</p>}
-        {!loading && !groups.length && <p className="muted">No duplicate or similar groups in this scope. Run a scan from the side panel.</p>}
+      <main className="review-main">
+        {loading && <p className="empty">Loading…</p>}
+        {!loading && !groups.length && (
+          <div className="empty">
+            <h2>Nothing to review</h2>
+            <p className="muted">No duplicate or similar groups in this scope. Run a scan from the side panel.</p>
+          </div>
+        )}
+        {!loading && groups.length > 0 && !filtered.length && (
+          <div className="empty">
+            <h2>No groups match these filters</h2>
+            <p className="muted">Try “Any status” to see groups you've already decided.</p>
+          </div>
+        )}
         {shown.map((g) => (
           <GroupRow key={g.id} group={g} items={items} decision={decisions.get(g.id)} adapter={adapter.current} onDecide={(d) => onDecide(g, d)} />
         ))}
         {pages > 1 && (
           <div className="pager">
             <button disabled={page === 0} onClick={() => (setPage(page - 1), scrollTo(0, 0))}>
-              Previous
+              ← Previous
             </button>
-            <small>
+            <span className="subtle num">
               Page {page + 1} of {pages}
-            </small>
+            </span>
             <button disabled={page >= pages - 1} onClick={() => (setPage(page + 1), scrollTo(0, 0))}>
-              Next
+              Next →
             </button>
           </div>
         )}

@@ -441,7 +441,7 @@ export class AmazonAdapter {
     } else if (search) {
       checks.push({ name: 'Sample photo', ok: false, detail: 'search returned no photos' });
     }
-    await run('Album list', () => this.listAlbums(), (a) => `${a.length} albums`);
+    await run('Album list', () => this.listAlbums(), (a) => `${a.length} album${a.length === 1 ? "" : "s"}`);
     return { ok: checks.every((c) => c.ok || c.optional), checks, sample: { webSearchUrl: this.webSearchUrl, node: sample } };
   }
 }

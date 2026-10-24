@@ -8,9 +8,10 @@ import { scanAlbums, scanMetadata, type Progress } from '../../pipeline/scan';
 import { runTiebreaks } from '../../pipeline/tiebreak';
 import { DEFAULT_SETTINGS, loadSettings, saveSettings, type Settings } from '../../shared/settings';
 import type { Album, Scope, TrashRun } from '../../shared/types';
-import { ProgressBar, SelfTestPanel, SettingsForm } from '../components';
+import { Callout, ProgressBar, SelfTestPanel, SettingsForm } from '../components';
 import { useAdapter } from '../useAdapter';
 import '../common.css';
+import './sidepanel.css';
 
 function App() {
   const adapter = useAdapter();
@@ -81,7 +82,7 @@ function App() {
       const a = await adapter.ready();
       const meta = await scanMetadata(a, scope.kind === 'year' ? scope : { kind: 'all' }, setProgress, ctrl.signal);
       const n: string[] = [];
-      if (meta.skippedShared) n.push(`Skipped ${meta.skippedShared} photos uploaded by someone else.`);
+      if (meta.skippedShared) n.push(`Skipped ${plural(meta.skippedShared, 'photo')} uploaded by someone else.`);
       if (meta.found === 0) n.push(`Amazon has no photos in ${scopeLabel(scope)}.`);
       try {
         await scanAlbums(a, setProgress, ctrl.signal);
@@ -91,7 +92,7 @@ function App() {
       }
       const items = await loadScope(scope);
       const res = await analyzeCandidates(a, items, settings, setProgress, ctrl.signal);
-      if (res.failed) n.push(`${res.failed} thumbnails could not be analyzed.`);
+      if (res.failed) n.push(`${plural(res.failed, 'thumbnail')} could not be analyzed.`);
       n.push(...res.warnings);
       if (settings.claudeTiebreaker && settings.anthropicApiKey) {
         const { groups } = await loadGroups(scope, settings);
@@ -142,129 +143,174 @@ function App() {
     if (album) changeScope({ kind: 'album', albumId: album.id, name: album.name });
   };
 
+  const scanLabel = scope.kind === 'all' ? 'Scan all photos' : scope.kind === 'year' ? `Scan ${scope.year}` : `Scan ${scope.name}`;
+  const canUndo = lastRun && (lastRun.trashedIds.length > 0 || Boolean(lastRun.inFlightIds?.length)) && lastRun.status !== 'restored';
+  const analyzedPct = stats && stats.candidates ? Math.round((100 * stats.analyzed) / stats.candidates) : 100;
+
   return (
-    <>
-      <section>
-        <h1>Amazon Photos Cleanup</h1>
-        <small>{indexed.toLocaleString()} photos indexed</small>
-      </section>
+    <div className="panel">
+      <header className="panel-header">
+        <div className="logo" aria-hidden>
+          ◧
+        </div>
+        <div>
+          <h1>Photos Cleanup</h1>
+          <span className="subtle num">{indexed.toLocaleString()} photos indexed</span>
+        </div>
+      </header>
 
       <SelfTestPanel test={adapter.test} error={adapter.error} testing={adapter.testing} onRetry={() => adapter.ready({ fresh: true }).catch(() => {})} />
 
-      <section className="stack">
-        <div className="row">
-          <label>Scope</label>
+      <section className="card stack">
+        <label className="stack" style={{ gap: 'var(--s1)' }}>
+          <span className="field-label">Scope</span>
           <select value={scopeValue} onChange={(e) => onScope(e.target.value)} disabled={busy}>
             <option value="all">All photos</option>
-            {years.map((y) => (
-              <option key={y} value={`y:${y}`}>
-                {y}
-              </option>
-            ))}
-            {albums.map((a) => (
-              <option key={a.id} value={`a:${a.id}`}>
-                Album: {a.name}
-              </option>
-            ))}
+            <optgroup label="Year">
+              {years.map((y) => (
+                <option key={y} value={`y:${y}`}>
+                  {y}
+                </option>
+              ))}
+            </optgroup>
+            {albums.length > 0 && (
+              <optgroup label="Album">
+                {albums.map((a) => (
+                  <option key={a.id} value={`a:${a.id}`}>
+                    {a.name}
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
-        </div>
-        <div className="row">
-          {busy && abort.current ? (
-            <button onClick={() => abort.current?.abort()}>Stop</button>
-          ) : (
-            <button className="primary" onClick={scan} disabled={busy}>
-              Scan
-            </button>
-          )}
-          {scope.kind === 'album' && <small>Album scope scans the whole library index, then analyzes the album.</small>}
-        </div>
+        </label>
+        {busy && abort.current ? (
+          <button className="block" onClick={() => abort.current?.abort()}>
+            Stop
+          </button>
+        ) : (
+          <button className="primary block" onClick={scan} disabled={busy}>
+            {scanLabel}
+          </button>
+        )}
+        {scope.kind === 'album' && <span className="subtle">Album scope indexes the whole library, then analyzes only this album.</span>}
         {progress && <ProgressBar progress={progress} />}
-        {adapter.waitMessage && <small className="warn">{adapter.waitMessage}</small>}
-        {error && <div className="error">{error}</div>}
+        {adapter.waitMessage && <Callout tone="warn">{adapter.waitMessage}</Callout>}
+        {error && <Callout tone="error">{error}</Callout>}
         {notes.map((n, i) => (
-          <small key={i} className="warn">
+          <Callout key={i} tone="info">
             {n}
-          </small>
+          </Callout>
         ))}
       </section>
 
       {summary && (
-        <section className="stack">
-          <h2>{scopeLabel(scope)}</h2>
-          <div className="stats">
-            <span>Exact duplicates</span>
-            <b>{summary.exactCopies.toLocaleString()}</b>
-            <span>Photos in similar groups</span>
-            <b>{summary.nearPhotos.toLocaleString()}</b>
-            <span>Similar groups</span>
-            <b>{summary.nearGroups.toLocaleString()}</b>
-            <span>Suggested for trash</span>
-            <b>{summary.suggested.toLocaleString()}</b>
+        <section className="card">
+          <div className="card-title">
+            <h2>{scopeLabel(scope)}</h2>
+            {summary.suggested > 0 && <span className="pill accent num">{summary.suggested.toLocaleString()} to review</span>}
+          </div>
+          <div className="tiles-grid">
+            <Stat label="Exact duplicates" value={summary.exactCopies} />
+            <Stat label="Similar groups" value={summary.nearGroups} />
+            <Stat label="Photos in similar groups" value={summary.nearPhotos} />
+            <Stat label="Suggested for trash" value={summary.suggested} accent />
           </div>
           {stats && (
-            <div className="stats">
-              <span>Taken within {settings.windowSeconds}s of another photo</span>
-              <b>{stats.candidates.toLocaleString()}</b>
-              <span>…of those, analyzed for similarity</span>
-              <b>{stats.analyzed.toLocaleString()}</b>
+            <div className="progress" style={{ marginTop: 'var(--s4)' }}>
+              <div className="progress-label">
+                <span>Similar-shot analysis</span>
+                <span className="num">
+                  {stats.analyzed.toLocaleString()} / {stats.candidates.toLocaleString()}
+                </span>
+              </div>
+              <div className="bar">
+                <div style={{ width: `${analyzedPct}%` }} />
+              </div>
+              <span className="subtle">Photos taken within {settings.windowSeconds}s of another, checked for near-duplicates.</span>
             </div>
           )}
-          {stats && stats.candidates > stats.analyzed && <small className="warn">Similar-shot analysis isn't finished. Scan again to continue it.</small>}
-          {stats && stats.midnight > stats.total / 2 && (
-            <small className="warn">Most capture times are exactly midnight, so Amazon may only be giving dates, not times. Similar-shot grouping needs real times.</small>
-          )}
-          <div className="row">
-            <button className="primary" onClick={() => chrome.tabs.create({ url: chrome.runtime.getURL('src/ui/review/index.html') })}>
-              Review
+          <div className="stack" style={{ marginTop: 'var(--s4)' }}>
+            {stats && stats.candidates > stats.analyzed && <Callout tone="warn">Similar-shot analysis isn't finished. Scan again to continue it.</Callout>}
+            {stats && stats.midnight > stats.total / 2 && (
+              <Callout tone="warn">Most capture times are exactly midnight, so Amazon may only be giving dates, not times. Similar-shot grouping needs real times.</Callout>
+            )}
+            <button className="primary block" onClick={() => chrome.tabs.create({ url: chrome.runtime.getURL('src/ui/review/index.html') })}>
+              Open review →
             </button>
           </div>
         </section>
       )}
 
       {lastRun && (
-        <section className="stack">
-          <h2>Last run</h2>
-          <small>
-            {new Date(lastRun.startedAt).toLocaleString()}: {lastRun.trashedIds.length} photos trashed, status {lastRun.status}
-            {lastRun.error ? ` (${lastRun.error})` : ''}
-          </small>
-          {(lastRun.trashedIds.length > 0 || Boolean(lastRun.inFlightIds?.length)) && lastRun.status !== 'restored' && (
-            <div className="row">
-              <button onClick={undo} disabled={busy}>
-                Undo last run
-              </button>
+        <section className="card">
+          <div className="card-title">
+            <h2>Last run</h2>
+            <span className={`pill ${lastRun.status === 'done' || lastRun.status === 'restored' ? 'ok' : lastRun.status === 'running' ? 'info' : 'error'}`}>{RUN_LABELS[lastRun.status]}</span>
+          </div>
+          <p className="muted" style={{ fontSize: 13 }}>
+            {lastRun.trashedIds.length.toLocaleString()} photos moved to trash · {new Date(lastRun.startedAt).toLocaleString()}
+          </p>
+          {lastRun.error && (
+            <div style={{ marginTop: 'var(--s3)' }}>
+              <Callout tone="error">{lastRun.error}</Callout>
             </div>
+          )}
+          {canUndo && (
+            <button className="block" style={{ marginTop: 'var(--s3)' }} onClick={undo} disabled={busy}>
+              Undo last run
+            </button>
           )}
         </section>
       )}
 
-      <section>
-        <details>
-          <summary>Settings</summary>
-          <SettingsForm
-            settings={settings}
-            onChange={async (s) => {
-              const clean = await saveSettings(s);
-              setSettings(clean);
-              await refresh(clean, scope);
+      <details className="card">
+        <summary>
+          Settings
+          <span className="chevron">›</span>
+        </summary>
+        <SettingsForm
+          settings={settings}
+          onChange={async (s) => {
+            const clean = await saveSettings(s);
+            setSettings(clean);
+            await refresh(clean, scope);
+          }}
+        />
+        <div className="row" style={{ marginTop: 'var(--s4)', paddingTop: 'var(--s3)', borderTop: '1px solid var(--line)' }}>
+          <button
+            className="small ghost"
+            disabled={busy}
+            onClick={async () => {
+              if (!confirm('Clear the local index, features and review decisions? Your Amazon library is not touched. The undo log is kept.')) return;
+              await clearAll();
+              await refresh(settings, scope);
             }}
-          />
-          <div className="row" style={{ marginTop: 12 }}>
-            <button
-              className="small"
-              disabled={busy}
-              onClick={async () => {
-                if (!confirm('Clear the local index, features and review decisions? Your Amazon library is not touched. The undo log is kept.')) return;
-                await clearAll();
-                await refresh(settings, scope);
-              }}
-            >
-              Clear local index
-            </button>
-          </div>
-        </details>
-      </section>
-    </>
+          >
+            Clear local index
+          </button>
+        </div>
+      </details>
+    </div>
+  );
+}
+
+const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
+
+const RUN_LABELS: Record<TrashRun['status'], string> = {
+  running: 'Interrupted',
+  done: 'Done',
+  failed: 'Stopped',
+  restored: 'Restored',
+  'restore-failed': 'Restore failed',
+};
+
+function Stat({ label, value, accent }: { label: string; value: number; accent?: boolean }) {
+  return (
+    <div className={`stat ${accent ? 'accent' : ''}`}>
+      <span className="stat-value num">{value.toLocaleString()}</span>
+      <span className="stat-label">{label}</span>
+    </div>
   );
 }
 
