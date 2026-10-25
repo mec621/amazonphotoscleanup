@@ -1,0 +1,372 @@
+import { StrictMode, useCallback, useEffect, useMemo, useState } from 'react';
+import { createRoot } from 'react-dom/client';
+import type { AmazonAdapter } from '../../adapter/amazon';
+import { allDecisions, allRuns, deleteDecision, getMeta, putDecision } from '../../db/store';
+import { applyTrash, rejectsFor, restoreRun } from '../../pipeline/apply';
+import { memberKey } from '../../pipeline/group';
+import { loadGroups, loadScopeSetting, scopeLabel } from '../../pipeline/library';
+import type { AlbumCrawl, Progress } from '../../pipeline/scan';
+import { DEFAULT_SETTINGS, loadSettings, type Settings } from '../../shared/settings';
+import type { Confidence, Decision, Group, PhotoItem, Scope, TrashRun } from '../../shared/types';
+import { Callout, ProgressBar } from '../components';
+import { Thumb } from '../thumb';
+import { useAdapter } from '../useAdapter';
+import '../fonts';
+import '../common.css';
+import './review.css';
+
+const PAGE = 25;
+
+// ---------------------------------------------------------------------------
+
+function GroupRow({ group, items, decision, adapter, onDecide }: { group: Group; items: Map<string, PhotoItem>; decision?: Decision; adapter: () => Promise<AmazonAdapter>; onDecide: (d: Decision | null) => void }) {
+  const valid = decision && decision.memberKey === memberKey(group) ? decision : undefined;
+  const [draft, setDraft] = useState<string[]>(valid?.keepIds ?? group.keepIds);
+  useEffect(() => setDraft(valid?.keepIds ?? group.keepIds), [valid, group]);
+
+  const decide = (status: Decision['status'], keepIds = draft) => onDecide({ groupId: group.id, memberKey: memberKey(group), keepIds, status, decidedAt: Date.now() });
+  const toggle = (id: string) => {
+    if (group.members.find((m) => m.id === id)?.protected) return;
+    const next = draft.includes(id) ? draft.filter((k) => k !== id) : [...draft, id];
+    if (!next.length) return; // something must survive
+    setDraft(next);
+    if (valid?.status === 'accepted') decide('accepted', next);
+  };
+  const rejects = group.members.filter((m) => !draft.includes(m.id) && !m.protected).length;
+  const first = items.get(group.members[0].id);
+
+  const date = first ? new Date(first.capturedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
+  const times = group.members.map((m) => items.get(m.id)?.capturedAt ?? 0).filter(Boolean);
+  const spanSec = times.length > 1 ? Math.round((Math.max(...times) - Math.min(...times)) / 1000) : 0;
+  const span = spanSec < 60 ? `${spanSec}s` : `${Math.round(spanSec / 60)} min`;
+
+  return (
+    <article className={`group-card ${valid?.status ?? ''}`}>
+      <header className="group-head">
+        <div className="group-info">
+          <span className="eyebrow">
+            {CONFIDENCE_LABEL[group.confidence]} · {date}
+            {group.kind === 'near' ? ` · taken within ${span}` : ''} · {rejects} to trash
+          </span>
+          <h2>
+            {group.members.length} {group.kind === 'exact' ? 'identical copies' : 'similar shots'}
+          </h2>
+        </div>
+        <div className="row">
+          {valid ? (
+            <>
+              <span className={`pill ${valid.status === 'accepted' ? 'ok' : ''}`}>
+                <span className="dot" />
+                {valid.status === 'accepted' ? 'Accepted' : 'Skipped'}
+              </span>
+              <button className="small ghost" onClick={() => onDecide(null)}>
+                Undo
+              </button>
+            </>
+          ) : (
+            <>
+              <button className="small ghost" onClick={() => decide('skipped')}>
+                Skip
+              </button>
+              <button className="small" onClick={() => decide('accepted', group.members.map((m) => m.id))}>
+                Keep all
+              </button>
+              <button className="small primary" onClick={() => decide('accepted')}>
+                Accept
+              </button>
+            </>
+          )}
+        </div>
+      </header>
+      <div className="tiles">
+        {group.members.map((m) => {
+          const it = items.get(m.id);
+          const keep = draft.includes(m.id) || Boolean(m.protected);
+          const badge = m.protected ? 'Protected' : keep ? 'Keep' : 'Trash';
+          return (
+            <button
+              key={m.id}
+              className={`tile ${keep ? 'keep' : 'reject'} ${m.protected ? 'protected' : ''}`}
+              onClick={() => toggle(m.id)}
+              title={m.protected ? `Protected: ${m.protected}` : keep ? 'Click to trash' : 'Click to keep'}
+            >
+              <div className="thumb-wrap">
+                <Thumb id={m.id} adapter={adapter} />
+              </div>
+              <div className="tile-body">
+                <span className={`tag ${m.protected ? 'protected' : keep ? 'keep' : 'trash'} num`}>
+                  {badge}
+                  {group.kind === 'near' ? ` · ${m.score}` : ''}
+                </span>
+                <p className="reason">{m.reason}</p>
+                {it && (
+                  <span className="subtle num">
+                    {it.width ? `${it.width}×${it.height} · ` : ''}
+                    {(it.size / 1e6).toFixed(1)} MB
+                  </span>
+                )}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </article>
+  );
+}
+
+const CONFIDENCE_LABEL: Record<Confidence, string> = { high: 'High confidence', medium: 'Medium confidence', low: 'Low confidence' };
+
+type KindFilter = 'all' | 'exact' | 'near';
+type StatusFilter = 'all' | 'undecided' | 'accepted' | 'skipped';
+
+function App() {
+  const adapter = useAdapter();
+  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  const [scope, setScope] = useState<Scope>({ kind: 'all' });
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [items, setItems] = useState<Map<string, PhotoItem>>(new Map());
+  const [decisions, setDecisions] = useState<Map<string, Decision>>(new Map());
+  const [loading, setLoading] = useState(true);
+  const [kind, setKind] = useState<KindFilter>('all');
+  const [year, setYear] = useState<number | 'all'>('all');
+  const [minSize, setMinSize] = useState(2);
+  const [confidence, setConfidence] = useState<Confidence | 'all'>('all');
+  const [status, setStatus] = useState<StatusFilter>('undecided');
+  const [page, setPage] = useState(0);
+  const [progress, setProgress] = useState<Progress | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ text: string; error?: boolean } | null>(null);
+  const [lastRun, setLastRun] = useState<TrashRun | null>(null);
+
+  const reload = useCallback(async () => {
+    const s = await loadSettings();
+    const sc = await loadScopeSetting();
+    const res = await loadGroups(sc, s);
+    setSettings(s);
+    setScope(sc);
+    setGroups(res.groups);
+    setItems(new Map(res.items.map((i) => [i.id, i])));
+    setDecisions(await allDecisions());
+    setLastRun((await allRuns())[0] ?? null);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    reload();
+  }, [reload]);
+
+  const years = useMemo(() => [...new Set(groups.map((g) => new Date(g.capturedAt).getFullYear()))].sort((a, b) => b - a), [groups]);
+
+  const statusOf = (g: Group) => {
+    const d = decisions.get(g.id);
+    return d && d.memberKey === memberKey(g) ? d.status : 'undecided';
+  };
+
+  const filtered = useMemo(
+    () =>
+      groups.filter(
+        (g) =>
+          (kind === 'all' || g.kind === kind) &&
+          (year === 'all' || new Date(g.capturedAt).getFullYear() === year) &&
+          g.members.length >= minSize &&
+          (confidence === 'all' || g.confidence === confidence) &&
+          (status === 'all' || statusOf(g) === status),
+      ),
+    [groups, decisions, kind, year, minSize, confidence, status],
+  );
+
+  useEffect(() => setPage(0), [kind, year, minSize, confidence, status]);
+
+  const rejects = useMemo(() => rejectsFor(groups, decisions, items), [groups, decisions, items]);
+
+  const onDecide = async (g: Group, d: Decision | null) => {
+    const next = new Map(decisions);
+    if (d) {
+      await putDecision(d);
+      next.set(g.id, d);
+    } else {
+      await deleteDecision(g.id);
+      next.delete(g.id);
+    }
+    setDecisions(next);
+  };
+
+  const approveExact = async () => {
+    const next = new Map(decisions);
+    for (const g of groups) {
+      if (g.kind !== 'exact' || statusOf(g) !== 'undecided') continue;
+      const d: Decision = { groupId: g.id, memberKey: memberKey(g), keepIds: g.keepIds, status: 'accepted', decidedAt: Date.now() };
+      await putDecision(d);
+      next.set(g.id, d);
+    }
+    setDecisions(next);
+  };
+
+  const apply = async () => {
+    if (!rejects.length) return;
+    if (!confirm(`Move ${rejects.length.toLocaleString()} photos to Amazon's trash?\n\nNothing is deleted permanently. You can restore them with Undo while they are in Amazon's trash.`)) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      // Album photos are only protected if the album crawl worked; don't trash on a guess.
+      const crawl = await getMeta<AlbumCrawl>('albumCrawl');
+      if (settings.protectAlbums && !crawl?.ok) throw new Error(`Nothing was trashed: your albums haven't been read yet (${crawl?.reason ?? 'no scan has finished'}), so photos in albums can't be protected. Finish a scan in the side panel, then try again.`);
+      const a = await adapter.ready({ fresh: true });
+      const run = await applyTrash(a, rejects, settings, setProgress);
+      setMessage(
+        run.status === 'done'
+          ? { text: `Moved ${run.trashedIds.length.toLocaleString()} photos to Amazon's trash. Amazon confirmed the first one landed there.` }
+          : { text: `Stopped after ${run.trashedIds.length} of ${rejects.length}: ${run.error}`, error: true },
+      );
+    } catch (e) {
+      setMessage({ text: e instanceof Error ? e.message : String(e), error: true });
+    } finally {
+      setProgress(null);
+      setBusy(false);
+      await chrome.storage.local.set({ dataVersion: Date.now() });
+      await reload();
+    }
+  };
+
+  const undo = async () => {
+    if (!lastRun || !confirm(`Restore ${lastRun.trashedIds.length} photos from Amazon's trash?`)) return;
+    setBusy(true);
+    try {
+      const a = await adapter.current();
+      const r = await restoreRun(a, lastRun, settings, setProgress);
+      setMessage(r.status === 'restored' ? { text: `Restored ${lastRun.items.length} photos.` } : { text: r.error ?? 'Restore failed', error: true });
+    } catch (e) {
+      setMessage({ text: e instanceof Error ? e.message : String(e), error: true });
+    } finally {
+      setProgress(null);
+      setBusy(false);
+      await chrome.storage.local.set({ dataVersion: Date.now() });
+      await reload();
+    }
+  };
+
+  const pages = Math.max(1, Math.ceil(filtered.length / PAGE));
+  const shown = filtered.slice(page * PAGE, page * PAGE + PAGE);
+  const undecidedExact = groups.filter((g) => g.kind === 'exact' && statusOf(g) === 'undecided').length;
+
+  const canUndo = lastRun && (lastRun.trashedIds.length > 0 || Boolean(lastRun.inFlightIds?.length)) && lastRun.status !== 'restored';
+
+  return (
+    <>
+      <header className="topbar">
+        <div className="topbar-inner">
+          <div>
+            <span className="eyebrow num">
+              {scopeLabel(scope)} · {groups.length.toLocaleString()} groups
+            </span>
+            <h1 className="page-title">Review</h1>
+          </div>
+          <span className="spacer" />
+          <div className="row">
+            {canUndo && (
+              <button className="ghost" onClick={undo} disabled={busy}>
+                Undo last run ({lastRun!.trashedIds.length})
+              </button>
+            )}
+            <button onClick={approveExact} disabled={busy || !undecidedExact}>
+              Approve exact duplicates ({undecidedExact})
+            </button>
+            <button className="danger" onClick={apply} disabled={busy || !rejects.length}>
+              Move {rejects.length.toLocaleString()} to trash
+            </button>
+          </div>
+        </div>
+        <div className="filters">
+          <select value={kind} onChange={(e) => setKind(e.target.value as KindFilter)} aria-label="Group type">
+            <option value="all">All groups</option>
+            <option value="exact">Exact duplicates</option>
+            <option value="near">Similar shots</option>
+          </select>
+          <select value={year} onChange={(e) => setYear(e.target.value === 'all' ? 'all' : Number(e.target.value))} aria-label="Year">
+            <option value="all">Any year</option>
+            {years.map((y) => (
+              <option key={y} value={y}>
+                {y}
+              </option>
+            ))}
+          </select>
+          <select value={minSize} onChange={(e) => setMinSize(Number(e.target.value))} aria-label="Group size">
+            {[2, 3, 5, 10].map((n) => (
+              <option key={n} value={n}>
+                {n}+ photos
+              </option>
+            ))}
+          </select>
+          <select value={confidence} onChange={(e) => setConfidence(e.target.value as Confidence | 'all')} aria-label="Confidence">
+            <option value="all">Any confidence</option>
+            <option value="high">High confidence</option>
+            <option value="medium">Medium confidence</option>
+            <option value="low">Low confidence</option>
+          </select>
+          <select value={status} onChange={(e) => setStatus(e.target.value as StatusFilter)} aria-label="Status">
+            <option value="undecided">Undecided</option>
+            <option value="accepted">Accepted</option>
+            <option value="skipped">Skipped</option>
+            <option value="all">Any status</option>
+          </select>
+          <span className="spacer" />
+          <span className="subtle num">
+            {filtered.length.toLocaleString()} shown · click a photo to keep or trash it
+          </span>
+        </div>
+        {(progress || adapter.waitMessage || message || adapter.error) && (
+          <div className="topbar-status">
+            {progress && <ProgressBar progress={progress} />}
+            {adapter.waitMessage && <Callout tone="warn">{adapter.waitMessage}</Callout>}
+            {message && <Callout tone={message.error ? 'error' : 'ok'}>{message.text}</Callout>}
+            {message && lastRun && (
+              <div className="row">
+                <button className="small primary" onClick={() => chrome.tabs.create({ url: chrome.runtime.getURL('src/ui/history/index.html') })}>
+                  See the trashed photos and check them with Amazon →
+                </button>
+              </div>
+            )}
+            {adapter.error && <Callout tone="error">{adapter.error}</Callout>}
+          </div>
+        )}
+      </header>
+      <main className="review-main">
+        {loading && <p className="empty">Loading…</p>}
+        {!loading && !groups.length && (
+          <div className="empty">
+            <h2>Nothing to review</h2>
+            <p className="muted">No duplicate or similar groups in this scope. Run a scan from the side panel.</p>
+          </div>
+        )}
+        {!loading && groups.length > 0 && !filtered.length && (
+          <div className="empty">
+            <h2>No groups match these filters</h2>
+            <p className="muted">Try “Any status” to see groups you've already decided.</p>
+          </div>
+        )}
+        {shown.map((g) => (
+          <GroupRow key={g.id} group={g} items={items} decision={decisions.get(g.id)} adapter={adapter.current} onDecide={(d) => onDecide(g, d)} />
+        ))}
+        {pages > 1 && (
+          <div className="pager">
+            <button disabled={page === 0} onClick={() => (setPage(page - 1), scrollTo(0, 0))}>
+              ← Previous
+            </button>
+            <span className="subtle num">
+              Page {page + 1} of {pages}
+            </span>
+            <button disabled={page >= pages - 1} onClick={() => (setPage(page + 1), scrollTo(0, 0))}>
+              Next →
+            </button>
+          </div>
+        )}
+      </main>
+    </>
+  );
+}
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <App />
+  </StrictMode>,
+);

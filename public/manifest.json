@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "Amazon Photos Cleanup",
+  "version": "0.1.0",
+  "description": "Find duplicate and near-duplicate photos in your Amazon Photos library, pick the best shot, and move the rest to trash after review.",
+  "minimum_chrome_version": "116",
+  "action": { "default_title": "Amazon Photos Cleanup" },
+  "side_panel": { "default_path": "src/ui/sidepanel/index.html" },
+  "background": { "service_worker": "background.js", "type": "module" },
+  "permissions": ["sidePanel", "storage", "tabs", "unlimitedStorage"],
+  "host_permissions": [
+    "https://www.amazon.com/*",
+    "https://photos.amazon.com/*",
+    "https://thumbnails-photos.amazon.com/*",
+    "https://huggingface.co/*",
+    "https://cdn-lfs.huggingface.co/*",
+    "https://cdn-lfs-us-1.huggingface.co/*",
+    "https://cas-bridge.xethub.hf.co/*",
+    "https://storage.googleapis.com/*",
+    "https://api.anthropic.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://www.amazon.com/photos*", "https://photos.amazon.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.amazon.com/photos*", "https://photos.amazon.com/*"],
+      "js": ["recorder.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  }
+}

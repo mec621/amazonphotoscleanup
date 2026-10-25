@@ -1,0 +1,19 @@
+.tag.status-ok { color: var(--keep); }
+.tag.status-warn { color: var(--warn); }
+.tag.status-error { color: var(--trash); }
+.tag.status-muted { color: var(--fg-3); }
+.tile .reason { word-break: break-all; font-size: 13px; }
+
+a.button-link {
+  display: inline-flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 var(--s4);
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  color: var(--fg);
+  font-weight: 600;
+  font-size: 13px;
+  text-decoration: none;
+}
+a.button-link:hover { background: var(--surface-2); }
