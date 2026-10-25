@@ -23,7 +23,7 @@ await panel.getByText(/^Connected/).waitFor({ timeout: 20000 });
 await panel.getByRole('button', { name: /^Scan/ }).click();
 await panel.getByRole('button', { name: /Open review/ }).waitFor({ timeout: 60000 });
 const panelText = (await panel.locator('body').innerText()).replace(/\s+/g, ' ');
-assert.match(panelText, /9 photos indexed/);
+assert.match(panelText, /9 photos indexed/i);
 assert.match(panelText, /Connected · 1 warning/);
 assert.match(panelText, /Skipped 1 photo uploaded by someone else/);
 assert.match(panelText, /2 Exact duplicates 1 Similar groups 3 Photos in similar groups 4 Suggested for trash/);

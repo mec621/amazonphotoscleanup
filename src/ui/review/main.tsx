@@ -10,6 +10,7 @@ import { DEFAULT_SETTINGS, loadSettings, type Settings } from '../../shared/sett
 import type { Confidence, Decision, Group, PhotoItem, Scope, TrashRun } from '../../shared/types';
 import { Callout, ProgressBar } from '../components';
 import { useAdapter } from '../useAdapter';
+import '../fonts';
 import '../common.css';
 import './review.css';
 
@@ -82,13 +83,12 @@ function GroupRow({ group, items, decision, adapter, onDecide }: { group: Group;
     <article className={`group-card ${valid?.status ?? ''}`}>
       <header className="group-head">
         <div className="group-info">
-          <div className="row" style={{ gap: 'var(--s2)' }}>
-            <span className="pill">{group.kind === 'exact' ? 'Exact duplicates' : 'Similar shots'}</span>
-            <span className={`pill ${CONFIDENCE_TONE[group.confidence]}`}>{CONFIDENCE_LABEL[group.confidence]}</span>
-          </div>
-          <span className="subtle">
-            {date} · {group.members.length} photos · {rejects} to trash
+          <span className="eyebrow">
+            {CONFIDENCE_LABEL[group.confidence]} · {date} · {rejects} to trash
           </span>
+          <h2>
+            {group.members.length} {group.kind === 'exact' ? 'identical copies' : 'similar shots'}
+          </h2>
         </div>
         <div className="row">
           {valid ? (
@@ -130,10 +130,12 @@ function GroupRow({ group, items, decision, adapter, onDecide }: { group: Group;
             >
               <div className="thumb-wrap">
                 <Thumb id={m.id} adapter={adapter} />
-                <span className={`tile-badge ${m.protected ? 'protected' : keep ? 'keep' : 'trash'}`}>{badge}</span>
-                {group.kind === 'near' && <span className="tile-score num">{m.score}</span>}
               </div>
               <div className="tile-body">
+                <span className={`tag ${m.protected ? 'protected' : keep ? 'keep' : 'trash'} num`}>
+                  {badge}
+                  {group.kind === 'near' ? ` · ${m.score}` : ''}
+                </span>
                 <p className="reason">{m.reason}</p>
                 {it && (
                   <span className="subtle num">
@@ -151,7 +153,6 @@ function GroupRow({ group, items, decision, adapter, onDecide }: { group: Group;
 }
 
 const CONFIDENCE_LABEL: Record<Confidence, string> = { high: 'High confidence', medium: 'Medium confidence', low: 'Low confidence' };
-const CONFIDENCE_TONE: Record<Confidence, string> = { high: 'ok', medium: 'accent', low: 'warn' };
 
 type KindFilter = 'all' | 'exact' | 'near';
 type StatusFilter = 'all' | 'undecided' | 'accepted' | 'skipped';
@@ -292,16 +293,11 @@ function App() {
     <>
       <header className="topbar">
         <div className="topbar-inner">
-          <div className="row" style={{ gap: 'var(--s3)' }}>
-            <div className="logo" aria-hidden>
-              ◧
-            </div>
-            <div>
-              <h1>Review</h1>
-              <span className="subtle num">
-                {scopeLabel(scope)} · {groups.length.toLocaleString()} groups
-              </span>
-            </div>
+          <div>
+            <span className="eyebrow num">
+              {scopeLabel(scope)} · {groups.length.toLocaleString()} groups
+            </span>
+            <h1 className="page-title">Review</h1>
           </div>
           <span className="spacer" />
           <div className="row">

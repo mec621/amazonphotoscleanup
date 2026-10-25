@@ -10,6 +10,7 @@ import { DEFAULT_SETTINGS, loadSettings, saveSettings, type Settings } from '../
 import type { Album, Scope, TrashRun } from '../../shared/types';
 import { Callout, ProgressBar, SelfTestPanel, SettingsForm } from '../components';
 import { useAdapter } from '../useAdapter';
+import '../fonts';
 import '../common.css';
 import './sidepanel.css';
 
@@ -149,22 +150,17 @@ function App() {
 
   return (
     <div className="panel">
-      <header className="panel-header">
-        <div className="logo" aria-hidden>
-          ◧
-        </div>
-        <div>
-          <h1>Photos Cleanup</h1>
-          <span className="subtle num">{indexed.toLocaleString()} photos indexed</span>
-        </div>
+      <header className="panel-header brand">
+        <h1>Photo Cleanup</h1>
+        <span className="eyebrow num">{indexed.toLocaleString()} photos indexed</span>
       </header>
 
       <SelfTestPanel test={adapter.test} error={adapter.error} testing={adapter.testing} onRetry={() => adapter.ready({ fresh: true }).catch(() => {})} />
 
       <section className="card stack">
         <label className="stack" style={{ gap: 'var(--s1)' }}>
-          <span className="field-label">Scope</span>
-          <select value={scopeValue} onChange={(e) => onScope(e.target.value)} disabled={busy}>
+          <span className="eyebrow">Scope</span>
+          <select className="underline" value={scopeValue} onChange={(e) => onScope(e.target.value)} disabled={busy}>
             <option value="all">All photos</option>
             <optgroup label="Year">
               {years.map((y) => (
