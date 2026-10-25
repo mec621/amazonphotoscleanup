@@ -18,7 +18,9 @@ export async function loadScope(scope: Scope): Promise<PhotoItem[]> {
 }
 
 export async function loadGroups(scope: Scope, settings: Settings): Promise<{ items: PhotoItem[]; features: Map<string, Features>; groups: Group[] }> {
-  const [items, features, tiebreaks] = await Promise.all([loadScope(scope), allFeatures(), getMeta<Tiebreaks>('tiebreaks')]);
+  const [scoped, features, tiebreaks] = await Promise.all([loadScope(scope), allFeatures(), getMeta<Tiebreaks>('tiebreaks')]);
+  // With album protection off, album membership plays no part in keeping or trashing.
+  const items = settings.protectAlbums ? scoped : scoped.map((i) => (i.albumIds.length ? { ...i, albumIds: [] } : i));
   return { items, features, groups: buildGroups(items, features, settings, settings.claudeTiebreaker ? (tiebreaks ?? {}) : {}) };
 }
 

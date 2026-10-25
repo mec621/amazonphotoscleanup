@@ -275,6 +275,7 @@ function App() {
           <span className="chevron">›</span>
         </summary>
         <SettingsForm
+          albums={albums}
           settings={settings}
           onChange={async (s) => {
             const clean = await saveSettings(s);

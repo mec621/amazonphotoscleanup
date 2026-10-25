@@ -252,7 +252,7 @@ function App() {
     try {
       // Album photos are only protected if the album crawl worked; don't trash on a guess.
       const crawl = await getMeta<AlbumCrawl>('albumCrawl');
-      if (!crawl?.ok) throw new Error(`Nothing was trashed: your albums haven't been read yet (${crawl?.reason ?? 'no scan has finished'}), so photos in albums can't be protected. Finish a scan in the side panel, then try again.`);
+      if (settings.protectAlbums && !crawl?.ok) throw new Error(`Nothing was trashed: your albums haven't been read yet (${crawl?.reason ?? 'no scan has finished'}), so photos in albums can't be protected. Finish a scan in the side panel, then try again.`);
       const a = await adapter.ready({ fresh: true });
       const run = await applyTrash(a, rejects, settings, setProgress);
       setMessage(

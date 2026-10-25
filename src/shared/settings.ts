@@ -11,6 +11,8 @@ export interface Settings {
   useFaces: boolean;
   /** Ask Claude to pick between the top two shots when their scores are close. Sends only those two thumbnails. */
   claudeTiebreaker: boolean;
+  /** Never trash photos that are in an album. */
+  protectAlbums: boolean;
   /** Your Anthropic API key, kept in this browser's extension storage. */
   anthropicApiKey: string;
   /** Milliseconds to wait between Amazon API calls. */
@@ -29,6 +31,7 @@ export const DEFAULT_SETTINGS: Settings = {
   useEmbeddings: true,
   useFaces: true,
   claudeTiebreaker: false,
+  protectAlbums: true,
   anthropicApiKey: '',
   apiDelayMs: 300,
   trashBatchSize: 50,

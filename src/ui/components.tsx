@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { SelfTestResult } from '../adapter/amazon';
 import type { Progress } from '../pipeline/scan';
 import type { Settings } from '../shared/settings';
+import type { Album } from '../shared/types';
 
 export function ProgressBar({ progress }: { progress: Progress }) {
   const pct = progress.total ? Math.min(100, (100 * progress.done) / progress.total) : 0;
@@ -141,7 +142,7 @@ function NumberInput({ field, value, onCommit }: { field: NumField; value: numbe
   );
 }
 
-export function SettingsForm({ settings, onChange }: { settings: Settings; onChange: (s: Settings) => void }) {
+export function SettingsForm({ settings, onChange, albums }: { settings: Settings; onChange: (s: Settings) => void; albums: Album[] }) {
   const numbers = (fields: NumField[]) =>
     fields.map((f) => (
       <label key={f.key} className="field">
@@ -174,6 +175,21 @@ export function SettingsForm({ settings, onChange }: { settings: Settings; onCha
             </span>
           </label>
         )}
+      </div>
+      <div className="settings-group">
+        <span className="field-label">Protection</span>
+        <label className="check">
+          <input type="checkbox" checked={settings.protectAlbums} onChange={(e) => onChange({ ...settings, protectAlbums: e.target.checked })} />
+          <span>
+            Never trash photos in albums
+            <span className="subtle" style={{ display: 'block' }}>
+              {albums.length
+                ? `Amazon lists ${albums.length} album${albums.length === 1 ? '' : 's'} on your account: ${albums.map((a) => `${a.name} (${a.count})`).join(', ')}.`
+                : 'No albums found yet; they are read during a scan.'}
+            </span>
+          </span>
+        </label>
+        <span className="subtle">Favorites and RAW originals are always kept.</span>
       </div>
       <div className="settings-group">
         <span className="field-label">Matching</span>

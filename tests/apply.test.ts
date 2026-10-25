@@ -4,6 +4,7 @@ import type { AmazonAdapter } from '../src/adapter/amazon';
 import { allItems, clearAll, putItems, updateAlbumMembership } from '../src/db/store';
 import { applyTrash, rejectsFor, restoreRun } from '../src/pipeline/apply';
 import { exactGroups, memberKey } from '../src/pipeline/group';
+import { loadGroups } from '../src/pipeline/library';
 import { DEFAULT_SETTINGS } from '../src/shared/settings';
 import type { Decision, PhotoItem, TrashRunItem } from '../src/shared/types';
 
@@ -102,5 +103,16 @@ describe('rejectsFor', () => {
     const d: Decision = { groupId: g.id, memberKey: memberKey(g), keepIds: ['jpg'], status: 'accepted', decidedAt: 0 };
     expect(rejectsFor([g], new Map([[g.id, d]]), new Map(its.map((i) => [i.id, i])))).toEqual([]);
     expect(g.members.find((m) => m.id === 'raw')!.protected).toBe('RAW original');
+  });
+});
+
+describe('album protection setting', () => {
+  it('protects album photos when on, and ignores albums when off', async () => {
+    await putItems([photo('a', { md5: 'x', uploadedAt: 1 }), photo('b', { md5: 'x', uploadedAt: 2, albumIds: ['al1'] })]);
+    const on = (await loadGroups({ kind: 'all' }, { ...DEFAULT_SETTINGS, protectAlbums: true })).groups[0];
+    expect(on.keepIds).toEqual(['b']); // the album copy is the keeper
+    const off = (await loadGroups({ kind: 'all' }, { ...DEFAULT_SETTINGS, protectAlbums: false })).groups[0];
+    expect(off.keepIds).toEqual(['a']); // back to oldest upload
+    expect(off.members.every((m) => !m.protected)).toBe(true);
   });
 });
