@@ -100,7 +100,7 @@ type BoolKey = { [K in keyof Settings]: Settings[K] extends boolean ? K : never 
 type NumField = { key: NumKey; label: string; step: number; min: number; max: number };
 
 const MATCHING: NumField[] = [
-  { key: 'windowSeconds', label: 'Time window (seconds)', step: 1, min: 2, max: 60 },
+  { key: 'windowSeconds', label: 'Time window (seconds)', step: 1, min: 2, max: 300 },
   { key: 'phashMaxBits', label: 'Max hash difference (bits)', step: 1, min: 0, max: 32 },
   { key: 'cosineMin', label: 'Min embedding similarity', step: 0.01, min: 0.5, max: 1 },
   { key: 'groupCap', label: 'Max group size', step: 1, min: 2, max: 200 },

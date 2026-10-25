@@ -78,13 +78,17 @@ function GroupRow({ group, items, decision, adapter, onDecide }: { group: Group;
   const first = items.get(group.members[0].id);
 
   const date = first ? new Date(first.capturedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
+  const times = group.members.map((m) => items.get(m.id)?.capturedAt ?? 0).filter(Boolean);
+  const spanSec = times.length > 1 ? Math.round((Math.max(...times) - Math.min(...times)) / 1000) : 0;
+  const span = spanSec < 60 ? `${spanSec}s` : `${Math.round(spanSec / 60)} min`;
 
   return (
     <article className={`group-card ${valid?.status ?? ''}`}>
       <header className="group-head">
         <div className="group-info">
           <span className="eyebrow">
-            {CONFIDENCE_LABEL[group.confidence]} · {date} · {rejects} to trash
+            {CONFIDENCE_LABEL[group.confidence]} · {date}
+            {group.kind === 'near' ? ` · taken within ${span}` : ''} · {rejects} to trash
           </span>
           <h2>
             {group.members.length} {group.kind === 'exact' ? 'identical copies' : 'similar shots'}
@@ -248,7 +252,7 @@ function App() {
     try {
       // Album photos are only protected if the album crawl worked; don't trash on a guess.
       const crawl = await getMeta<AlbumCrawl>('albumCrawl');
-      if (!crawl?.ok) throw new Error(`Album protection isn't confirmed (${crawl?.reason ?? 'albums not read yet'}), so nothing was trashed. Run a scan from the side panel first.`);
+      if (!crawl?.ok) throw new Error(`Nothing was trashed: your albums haven't been read yet (${crawl?.reason ?? 'no scan has finished'}), so photos in albums can't be protected. Finish a scan in the side panel, then try again.`);
       const a = await adapter.ready({ fresh: true });
       const run = await applyTrash(a, rejects, settings, setProgress);
       setMessage(

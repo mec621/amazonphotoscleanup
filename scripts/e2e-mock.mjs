@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import { launchWithMockAmazon } from './mock-amazon.mjs';
 
-const { ctx, ext, nodes, calls, searches, state } = await launchWithMockAmazon();
+const { ctx, ext, nodes, calls, searches, state } = await launchWithMockAmazon({ rejectBuiltinSearch: true });
 const errors = [];
 const amazon = await ctx.newPage();
 await amazon.goto('https://www.amazon.com/photos/all');
@@ -50,7 +50,11 @@ assert.deepEqual(trashed(), ['p2', 'p3', 'p4copy', 'p6']);
 assert.equal(calls.filter((c) => c.includes('sid=undefined')).length, 1);
 assert.ok(state.rateLimitedOnce, 'the mock rate-limited one search and the scan recovered');
 // Every search after the page's own one reuses the web app's parameters.
-assert.ok(searches.length > 2 && searches.slice(1).every((p) => p.get('webapp') === 'yes'), 'extension copies the web app search parameters');
+// Amazon rejected the built-in search style once (HTTP 400); the extension switched to the page's settings and kept them.
+assert.equal(state.rejected400, 1, 'exactly one search was rejected before switching styles');
+const lastBuiltin = searches.map((p) => p.get('webapp') !== 'yes').lastIndexOf(true);
+const afterSwitch = searches.slice(lastBuiltin + 1);
+assert.ok(afterSwitch.length > 2 && afterSwitch.every((p) => p.get('webapp') === 'yes'), 'extension falls back to the web app search parameters');
 
 await panel.reload();
 await panel.getByRole('button', { name: 'Undo last run' }).click();

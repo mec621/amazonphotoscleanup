@@ -228,6 +228,15 @@ function App() {
           )}
           <div className="stack" style={{ marginTop: 'var(--s4)' }}>
             {stats && stats.candidates > stats.analyzed && <Callout tone="warn">Similar-shot analysis isn't finished. Scan again to continue it.</Callout>}
+            {stats && summary.nearGroups === 0 && stats.analyzed > 0 && stats.analyzed === stats.candidates && (
+              <Callout tone="info">
+                Checked {stats.analyzed.toLocaleString()} photos taken within {settings.windowSeconds}s of another, and none looked alike enough to group. A longer time window in Settings
+                compares more photos.
+              </Callout>
+            )}
+            {stats && stats.candidates === 0 && stats.total > 0 && (
+              <Callout tone="info">No photos here were taken within {settings.windowSeconds}s of each other. A longer time window in Settings compares more photos.</Callout>
+            )}
             {stats && stats.midnight > stats.total / 2 && (
               <Callout tone="warn">Most capture times are exactly midnight, so Amazon may only be giving dates, not times. Similar-shot grouping needs real times.</Callout>
             )}

@@ -33,7 +33,7 @@ const nodes = [
 const thumbs = { p8: png(256, 192, (x, y) => (x ^ y) & 255), p1: png(256, 192, scene), p2: png(256, 192, blurred), p3: png(256, 192, (x, y) => scene(x, y) + 3), p4: png(256, 192, other), p4copy: png(256, 192, other), p5: png(256, 192, (x, y) => 255 - other(x, y)), p6: png(256, 192, (x, y) => 255 - other(x, y)), p7: png(256, 192, (x, y) => (x * y) % 255), x1: png(256, 192, scene) };
 
 
-export async function launchWithMockAmazon({ rateLimitFirstSearch = true, headless = true } = {}) {
+export async function launchWithMockAmazon({ rateLimitFirstSearch = true, rejectBuiltinSearch = false, headless = true } = {}) {
 const calls = [];
 const searches = [];
 const state = { rateLimitedOnce: !rateLimitFirstSearch };
@@ -52,6 +52,11 @@ await ctx.route('https://www.amazon.com/**', async (route) => {
   if (u.pathname === '/drive/v1/search' && req.headers()['x-amzn-sessionid'] && !state.rateLimitedOnce) {
     state.rateLimitedOnce = true;
     return route.fulfill({ status: 429, headers: { 'retry-after': '1' }, contentType: 'application/json', body: '{"message":"Rate exceeded"}' });
+  }
+  // Like the real account: one style of search parameters can be rejected outright.
+  if (rejectBuiltinSearch && u.pathname === '/drive/v1/search' && req.headers()['x-amzn-sessionid'] && u.searchParams.get('webapp') !== 'yes') {
+    state.rejected400 = (state.rejected400 ?? 0) + 1;
+    return route.fulfill({ status: 400, contentType: 'application/json', body: '{"message":"Invalid parameter"}' });
   }
   const json = (o) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(o) });
   if (u.pathname === '/drive/v1/nodes' && f === 'isRoot:true') return json({ data: [{ id: 'root', ownerId: 'me' }] });

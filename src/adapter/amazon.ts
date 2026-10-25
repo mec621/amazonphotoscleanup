@@ -123,6 +123,7 @@ export interface SelfTestResult {
 }
 
 type ThumbStrategy = 'direct' | 'relay' | 'redirect';
+type SearchOpts = { year?: number; month?: number; offset: number; limit: number; sort?: 'ASC' | 'DESC' };
 
 export class AmazonAdapter {
   private lastCall = 0;
@@ -132,6 +133,8 @@ export class AmazonAdapter {
   private thumbStrategy: ThumbStrategy | null = null;
   ownerId = '';
 
+  /** Which search parameters to send; switches if Amazon rejects one style with HTTP 400. */
+  private searchStyle: 'builtin' | 'webapp' = 'builtin';
   /** Set by the self-test: whether search honours an oldest-first sort. */
   ascendingSortWorks = false;
   /** Query parameters of the web app's own last photo search, when the page has made one. */
@@ -161,7 +164,10 @@ export class AmazonAdapter {
     if (!hello.hasSession) throw new AmazonError('You do not appear to be signed in to Amazon in that tab.');
     // Prefer the API base the web app itself uses for search.
     const webBase = hello.webSearchUrl?.split('/search?')[0];
-    return new AmazonAdapter(tab.id!, webBase ?? `${hello.origin}/drive/v1`, apiDelayMs, hello.webSearchUrl ?? null);
+    const adapter = new AmazonAdapter(tab.id!, webBase ?? `${hello.origin}/drive/v1`, apiDelayMs, hello.webSearchUrl ?? null);
+    const { searchStyle } = await chrome.storage.local.get('searchStyle');
+    if (searchStyle === 'webapp' || searchStyle === 'builtin') adapter.searchStyle = searchStyle;
+    return adapter;
   }
 
   private async relay(req: RelayRequest): Promise<RelayResponse> {
@@ -190,7 +196,10 @@ export class AmazonAdapter {
       const maxRetries = rateLimited ? RATE_LIMIT_WAITS_MS.length : 3;
       if (!retryable || attempt >= maxRetries) {
         const hint = rateLimited ? ' Amazon is still rate-limiting after waiting about 7 minutes; leave it for 15–30 minutes, then try again.' : '';
-        throw new AmazonError(`${method} ${path} failed: HTTP ${res.status} ${res.error ?? ''}${hint}`.trim(), res.status, res.json ?? res.text);
+        // Say what Amazon said, and where in the paging it happened, so failures can be diagnosed from a screenshot.
+        const said = res.json !== undefined && res.json !== null ? JSON.stringify(res.json) : (res.text ?? '');
+        const where = isSearch ? ` (offset ${params.offset ?? 0}, limit ${params.limit ?? '?'})` : '';
+        throw new AmazonError(`${method} ${path}${where} failed: HTTP ${res.status}${said ? ` — ${said.slice(0, 200)}` : ''}${res.error ? ` ${res.error}` : ''}.${hint}`, res.status, res.json ?? res.text);
       }
       // Honour Retry-After; otherwise wait 30s, 1m, 2m, 4m on 429, and 5s, 15s, 45s on server errors.
       const retryAfter = Number(res.retryAfter) * 1000;
@@ -223,16 +232,41 @@ export class AmazonAdapter {
     return f;
   }
 
-  async searchRaw(opts: { year?: number; month?: number; offset: number; limit: number; sort?: 'ASC' | 'DESC' }): Promise<{ count: number; data: RawNode[] }> {
+  async searchRaw(opts: SearchOpts): Promise<{ count: number; data: RawNode[] }> {
+    try {
+      return await this.searchOnce(opts);
+    } catch (e) {
+      // A 400 means Amazon rejected the request's shape. Try the other parameter style once,
+      // and keep whichever works for the rest of the session.
+      if (!(e instanceof AmazonError) || e.status !== 400 || !this.webSearchParams) throw e;
+      const tried = this.searchStyle;
+      this.searchStyle = tried === 'builtin' ? 'webapp' : 'builtin';
+      try {
+        const res = await this.searchOnce(opts);
+        // Remember the working style so other pages don't hit the same rejection.
+        await chrome.storage.local.set({ searchStyle: this.searchStyle });
+        return res;
+      } catch (e2) {
+        this.searchStyle = tried;
+        throw new AmazonError(`${e.message} The ${tried === 'builtin' ? "Amazon page's" : 'built-in'} search settings failed too: ${e2 instanceof Error ? e2.message : e2}`, 400, e.detail);
+      }
+    }
+  }
+
+  private async searchOnce(opts: SearchOpts): Promise<{ count: number; data: RawNode[] }> {
     const res = await this.api<{ count?: number; data?: RawNode[] }>('GET', '/search', this.searchParams(opts));
     if (!res || !Array.isArray(res.data)) throw new AmazonError('Search response has no data array', 0, res);
     return { count: res.count ?? res.data.length, data: res.data };
   }
 
-  /** Our filters and paging on top of the web app's own search parameters when known, else documented defaults. */
-  searchParams(opts: { year?: number; month?: number; offset: number; limit: number; sort?: 'ASC' | 'DESC' }): Record<string, string | number> {
+  /**
+   * Our filters and paging on top of either the documented defaults or the Amazon page's own
+   * last search. The page's search may come from an album or search view with extra settings,
+   * so the defaults go first and the page's settings are the fallback.
+   */
+  searchParams(opts: SearchOpts): Record<string, string | number> {
     const ours = { filters: this.photoFilter(opts.year, opts.month), offset: opts.offset, limit: opts.limit };
-    if (!this.webSearchParams) {
+    if (this.searchStyle === 'builtin' || !this.webSearchParams) {
       return { ...ours, lowResThumbnail: 'true', searchContext: 'customer', sort: `['contentProperties.contentDate ${opts.sort ?? 'DESC'}']` };
     }
     const params: Record<string, string | number> = { ...this.webSearchParams, ...ours };
@@ -394,7 +428,7 @@ export class AmazonAdapter {
     checks.push({
       name: "Web app's own search",
       ok: true,
-      detail: this.webSearchParams ? 'seen; copying its parameters' : 'not seen yet (scroll your photos once, then re-run); using built-in parameters',
+      detail: this.webSearchParams ? 'seen; kept as a fallback if built-in searches are rejected' : 'not seen yet; using built-in search settings',
     });
     await run('Root node / owner ID', () => this.loadOwnerId(), (o) => `ownerId ${o.slice(0, 6)}…`);
     const search = await run('Photo search', () => this.searchRaw({ offset: 0, limit: 3 }), (r) => `${r.count.toLocaleString()} photos reported`);
