@@ -261,8 +261,11 @@ function App() {
               <Callout tone="error">{lastRun.error}</Callout>
             </div>
           )}
+          <button className="primary block" style={{ marginTop: 'var(--s3)' }} onClick={openHistory}>
+            See trashed photos and check with Amazon
+          </button>
           {canUndo && (
-            <button className="block" style={{ marginTop: 'var(--s3)' }} onClick={undo} disabled={busy}>
+            <button className="block" style={{ marginTop: 'var(--s2)' }} onClick={undo} disabled={busy}>
               Undo last run
             </button>
           )}
@@ -300,6 +303,8 @@ function App() {
     </div>
   );
 }
+
+const openHistory = () => chrome.tabs.create({ url: chrome.runtime.getURL('src/ui/history/index.html') });
 
 const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
 

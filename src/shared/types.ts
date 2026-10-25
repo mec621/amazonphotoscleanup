@@ -92,6 +92,8 @@ export interface TrashRun {
   trashedIds: string[];
   /** A batch sent to Amazon whose outcome isn't known yet (e.g. the tab closed mid-call). */
   inFlightIds?: string[];
+  /** The last check of each photo's status with Amazon (e.g. TRASH, AVAILABLE), to prove the run happened. */
+  verified?: { at: number; status: Record<string, string> };
   status: 'running' | 'done' | 'failed' | 'restored' | 'restore-failed';
   error?: string;
   restoredAt?: number;

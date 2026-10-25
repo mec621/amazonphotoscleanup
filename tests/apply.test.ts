@@ -2,7 +2,8 @@ import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { AmazonAdapter } from '../src/adapter/amazon';
 import { allItems, clearAll, putItems, updateAlbumMembership } from '../src/db/store';
-import { applyTrash, rejectsFor, restoreRun } from '../src/pipeline/apply';
+import { applyTrash, rejectsFor, restoreRun, verifyRun } from '../src/pipeline/apply';
+import { AmazonError } from '../src/adapter/amazon';
 import { exactGroups, memberKey } from '../src/pipeline/group';
 import { loadGroups } from '../src/pipeline/library';
 import { DEFAULT_SETTINGS } from '../src/shared/settings';
@@ -114,5 +115,19 @@ describe('album protection setting', () => {
     const off = (await loadGroups({ kind: 'all' }, { ...DEFAULT_SETTINGS, protectAlbums: false })).groups[0];
     expect(off.keepIds).toEqual(['a']); // back to oldest upload
     expect(off.members.every((m) => !m.protected)).toBe(true);
+  });
+});
+
+describe('verifyRun', () => {
+  it("records each photo's status as Amazon reports it", async () => {
+    const { adapter, status } = fakeAmazon();
+    const run = await applyTrash(adapter, items(3), settings, noop);
+    status.set('p2', 'AVAILABLE'); // e.g. restored by hand on Amazon's site
+    const gone = { ...adapter, nodeStatus: async (id: string) => {
+      if (id === 'p1') throw new AmazonError('not found', 404);
+      return status.get(id) ?? 'AVAILABLE';
+    } } as unknown as AmazonAdapter;
+    const checked = await verifyRun(gone, run, noop);
+    expect(checked.verified!.status).toEqual({ p0: 'TRASH', p1: 'GONE', p2: 'AVAILABLE' });
   });
 });

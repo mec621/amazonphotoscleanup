@@ -30,6 +30,7 @@ export default defineConfig({
       input: {
         sidepanel: resolve(import.meta.dirname, 'src/ui/sidepanel/index.html'),
         review: resolve(import.meta.dirname, 'src/ui/review/index.html'),
+        history: resolve(import.meta.dirname, 'src/ui/history/index.html'),
         background: resolve(import.meta.dirname, 'src/background/index.ts'),
         content: resolve(import.meta.dirname, 'src/content/index.ts'),
         recorder: resolve(import.meta.dirname, 'src/content/recorder.ts'),

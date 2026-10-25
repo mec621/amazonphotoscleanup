@@ -1,4 +1,4 @@
-import type { AmazonAdapter } from '../adapter/amazon';
+import { AmazonError, type AmazonAdapter } from '../adapter/amazon';
 import { deleteItems, putItems, putRun } from '../db/store';
 import type { Settings } from '../shared/settings';
 import type { Decision, Group, PhotoItem, TrashRun, TrashRunItem } from '../shared/types';
@@ -126,6 +126,26 @@ export async function restoreRun(adapter: AmazonAdapter, run: TrashRun, settings
     // Keep only what still needs restoring, so retrying picks up where this stopped.
     run.trashedIds = run.trashedIds.slice(restored);
   }
+  await putRun(run);
+  return run;
+}
+
+/**
+ * Asks Amazon for the current status of every photo in a run (e.g. TRASH or AVAILABLE)
+ * and stores the answers on the run, so the history page can show what really happened.
+ * A photo Amazon no longer knows (HTTP 404) is reported as GONE.
+ */
+export async function verifyRun(adapter: AmazonAdapter, run: TrashRun, onProgress: OnProgress): Promise<TrashRun> {
+  const status: Record<string, string> = {};
+  for (const [i, { id }] of run.items.entries()) {
+    try {
+      status[id] = await adapter.nodeStatus(id);
+    } catch (e) {
+      status[id] = e instanceof AmazonError && e.status === 404 ? 'GONE' : 'UNCHECKED';
+    }
+    onProgress({ phase: 'Checking with Amazon', done: i + 1, total: run.items.length });
+  }
+  run.verified = { at: Date.now(), status };
   await putRun(run);
   return run;
 }

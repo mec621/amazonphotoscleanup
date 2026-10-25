@@ -31,6 +31,21 @@ for (const scheme of ['light', 'dark']) {
   await panel.screenshot({ path: `${out}/panel-${scheme}.png`, fullPage: true });
   await review.screenshot({ path: `${out}/review-${scheme}.png`, fullPage: true });
 }
+// Trash the suggestions, then capture the history page with Amazon's answers.
+await review.emulateMedia({ colorScheme: 'light' });
+review.on('dialog', (d) => d.accept());
+await review.getByRole('button', { name: /Approve exact duplicates/ }).click();
+await review.locator('.group-card', { hasText: 'similar shots' }).getByRole('button', { name: 'Accept' }).click();
+await review.getByRole('button', { name: /Move \d+ to trash/ }).click();
+await review.locator('.callout.ok').first().waitFor({ timeout: 30000 });
+await review.screenshot({ path: `${out}/review-after-trash.png` });
+const history = await ctx.newPage();
+await history.setViewportSize({ width: 1280, height: 900 });
+await history.goto(`${ext}/src/ui/history/index.html`);
+await history.getByText('Amazon confirms', { exact: false }).waitFor({ timeout: 30000 });
+await history.waitForTimeout(800);
+await history.screenshot({ path: `${out}/history.png`, fullPage: true });
+
 // Expanded connection check and settings.
 await panel.emulateMedia({ colorScheme: 'light' });
 for (const d of await panel.locator('details').all()) await d.evaluate((el) => el.setAttribute('open', ''));

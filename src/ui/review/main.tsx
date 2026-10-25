@@ -1,4 +1,4 @@
-import { StrictMode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { StrictMode, useCallback, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { AmazonAdapter } from '../../adapter/amazon';
 import { allDecisions, allRuns, deleteDecision, getMeta, putDecision } from '../../db/store';
@@ -9,55 +9,13 @@ import type { AlbumCrawl, Progress } from '../../pipeline/scan';
 import { DEFAULT_SETTINGS, loadSettings, type Settings } from '../../shared/settings';
 import type { Confidence, Decision, Group, PhotoItem, Scope, TrashRun } from '../../shared/types';
 import { Callout, ProgressBar } from '../components';
+import { Thumb } from '../thumb';
 import { useAdapter } from '../useAdapter';
 import '../fonts';
 import '../common.css';
 import './review.css';
 
 const PAGE = 25;
-
-// ---------------------------------------------------------------------------
-// Thumbnails: fetched through the adapter, a few at a time, held as object URLs.
-
-const thumbCache = new Map<string, Promise<string>>();
-let active = 0;
-const queue: (() => void)[] = [];
-
-function loadThumb(id: string, adapter: () => Promise<AmazonAdapter>): Promise<string> {
-  let p = thumbCache.get(id);
-  if (!p) {
-    p = new Promise<void>((r) => (active < 4 ? (active++, r()) : queue.push(() => (active++, r()))))
-      .then(async () => URL.createObjectURL(await (await adapter()).fetchThumbnail(id)))
-      .finally(() => {
-        active--;
-        queue.shift()?.();
-      });
-    p.catch(() => thumbCache.delete(id));
-    thumbCache.set(id, p);
-  }
-  return p;
-}
-
-function Thumb({ id, adapter }: { id: string; adapter: () => Promise<AmazonAdapter> }) {
-  const [src, setSrc] = useState<string>();
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    let live = true;
-    const io = new IntersectionObserver((entries) => {
-      if (!entries.some((e) => e.isIntersecting)) return;
-      io.disconnect();
-      loadThumb(id, adapter).then((u) => live && setSrc(u), () => {});
-    }, { rootMargin: '400px' });
-    io.observe(el);
-    return () => {
-      live = false;
-      io.disconnect();
-    };
-  }, [id, adapter]);
-  return <div ref={ref}>{src ? <img className="thumb" src={src} alt="" /> : <div className="thumb loading" />}</div>;
-}
 
 // ---------------------------------------------------------------------------
 
@@ -257,7 +215,7 @@ function App() {
       const run = await applyTrash(a, rejects, settings, setProgress);
       setMessage(
         run.status === 'done'
-          ? { text: `Moved ${run.trashedIds.length.toLocaleString()} photos to trash.` }
+          ? { text: `Moved ${run.trashedIds.length.toLocaleString()} photos to Amazon's trash. Amazon confirmed the first one landed there.` }
           : { text: `Stopped after ${run.trashedIds.length} of ${rejects.length}: ${run.error}`, error: true },
       );
     } catch (e) {
@@ -361,6 +319,13 @@ function App() {
             {progress && <ProgressBar progress={progress} />}
             {adapter.waitMessage && <Callout tone="warn">{adapter.waitMessage}</Callout>}
             {message && <Callout tone={message.error ? 'error' : 'ok'}>{message.text}</Callout>}
+            {message && lastRun && (
+              <div className="row">
+                <button className="small primary" onClick={() => chrome.tabs.create({ url: chrome.runtime.getURL('src/ui/history/index.html') })}>
+                  See the trashed photos and check them with Amazon →
+                </button>
+              </div>
+            )}
             {adapter.error && <Callout tone="error">{adapter.error}</Callout>}
           </div>
         )}

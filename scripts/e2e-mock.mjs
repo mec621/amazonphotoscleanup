@@ -42,7 +42,7 @@ await review.selectOption('select >> nth=4', 'all');
 await near.getByRole('button', { name: 'Accept' }).click();
 await review.getByRole('button', { name: 'Move 4 to trash' }).click();
 await review.locator('.callout.ok, .callout.error').first().waitFor({ timeout: 30000 });
-assert.equal(await review.locator('.callout.ok, .callout.error').first().innerText(), 'Moved 4 photos to trash.');
+assert.match(await review.locator('.callout.ok, .callout.error').first().innerText(), /^Moved 4 photos to Amazon's trash/);
 const trashed = () => nodes.filter((n) => n.status === 'TRASH').map((n) => n.id).sort();
 // p1 (sharpest) stays; p5 is in an album, so its copy p6 goes; x1 belongs to someone else.
 assert.deepEqual(trashed(), ['p2', 'p3', 'p4copy', 'p6']);
@@ -55,6 +55,13 @@ assert.equal(state.rejected400, 1, 'exactly one search was rejected before switc
 const lastBuiltin = searches.map((p) => p.get('webapp') !== 'yes').lastIndexOf(true);
 const afterSwitch = searches.slice(lastBuiltin + 1);
 assert.ok(afterSwitch.length > 2 && afterSwitch.every((p) => p.get('webapp') === 'yes'), 'extension falls back to the web app search parameters');
+
+// The history page asks Amazon about every trashed photo and shows the answer.
+const history = await ctx.newPage();
+history.on('pageerror', (e) => errors.push(`history: ${e}`));
+await history.goto(`${ext}/src/ui/history/index.html`);
+await history.getByText('Amazon confirms 4 of 4 are in its trash', { exact: false }).waitFor({ timeout: 30000 });
+assert.equal(await history.getByText("In Amazon's trash").count(), 4);
 
 await panel.reload();
 await panel.getByRole('button', { name: 'Undo last run' }).click();
