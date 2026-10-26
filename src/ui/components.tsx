@@ -47,52 +47,49 @@ export function StatusPill({ state }: { state: ConnectionState }) {
   );
 }
 
-export function SelfTestPanel({ test, error, testing, onRetry }: { test: SelfTestResult | null; error: string | null; testing: boolean; onRetry: () => void }) {
+/** The self-test's results, shown as the first group in Settings. */
+export function ConnectionSettings({ test, error, testing, onRetry }: { test: SelfTestResult | null; error: string | null; testing: boolean; onRetry: () => void }) {
   const [copied, setCopied] = useState(false);
-  const state = connectionState(test, error, testing);
   return (
-    <details className="card" open={Boolean(error)}>
-      <summary>
-        Connection check
-        <StatusPill state={state} />
-        <span className="chevron">›</span>
-      </summary>
-      <div className="stack" style={{ marginTop: 'var(--s3)' }}>
-        {error && <Callout tone="error">{error}</Callout>}
-        {test && (
-          <ul className="checks">
-            {test.checks.map((c) => {
-              const tone = c.ok ? 'ok' : c.optional ? 'warn' : 'error';
-              return (
-                <li key={c.name}>
-                  <span className={`icon ${tone}`}>{c.ok ? '✓' : c.optional ? '!' : '✕'}</span>
-                  <span>
-                    {c.name}
-                    <span className="detail">{c.detail}</span>
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-        <div className="row">
-          <button className="small" onClick={onRetry} disabled={testing}>
-            Run self-test
-          </button>
-          {test?.sample !== undefined && (
-            <button
-              className="small ghost"
-              onClick={async () => {
-                await navigator.clipboard.writeText(JSON.stringify(test.sample, null, 2));
-                setCopied(true);
-              }}
-            >
-              {copied ? 'Copied' : 'Copy sample response'}
-            </button>
-          )}
-        </div>
+    <div className="settings-group">
+      <div className="row">
+        <span className="field-label">Connection</span>
+        <StatusPill state={connectionState(test, error, testing)} />
       </div>
-    </details>
+      {error && <Callout tone="error">{error}</Callout>}
+      {test && (
+        <ul className="checks">
+          {test.checks.map((c) => {
+            const tone = c.ok ? 'ok' : c.optional ? 'warn' : 'error';
+            return (
+              <li key={c.name}>
+                <span className={`icon ${tone}`}>{c.ok ? '✓' : c.optional ? '!' : '✕'}</span>
+                <span>
+                  {c.name}
+                  <span className="detail">{c.detail}</span>
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <div className="row">
+        <button className="small" onClick={onRetry} disabled={testing}>
+          Run self-test
+        </button>
+        {test?.sample !== undefined && (
+          <button
+            className="small ghost"
+            onClick={async () => {
+              await navigator.clipboard.writeText(JSON.stringify(test.sample, null, 2));
+              setCopied(true);
+            }}
+          >
+            {copied ? 'Copied' : 'Copy sample response'}
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
 
