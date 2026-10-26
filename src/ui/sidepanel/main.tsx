@@ -8,7 +8,7 @@ import { scanAlbums, scanMetadata, type Progress } from '../../pipeline/scan';
 import { runTiebreaks } from '../../pipeline/tiebreak';
 import { DEFAULT_SETTINGS, loadSettings, saveSettings, type Settings } from '../../shared/settings';
 import type { Album, Scope, TrashRun } from '../../shared/types';
-import { Callout, ProgressBar, SelfTestPanel, SettingsForm } from '../components';
+import { Callout, ConnectionSettings, ProgressBar, SettingsForm, StatusPill, connectionState } from '../components';
 import { useAdapter } from '../useAdapter';
 import '../fonts';
 import '../common.css';
@@ -28,6 +28,7 @@ function App() {
   const [notes, setNotes] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [lastRun, setLastRun] = useState<TrashRun | null>(null);
+  const settingsRef = useRef<HTMLDetailsElement>(null);
   const abort = useRef<AbortController | null>(null);
 
   const refresh = useCallback(async (s: Settings, sc: Scope) => {
@@ -144,6 +145,13 @@ function App() {
     if (album) changeScope({ kind: 'album', albumId: album.id, name: album.name });
   };
 
+  const openSettings = () => {
+    const el = settingsRef.current;
+    if (!el) return;
+    el.open = true;
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   const scanLabel = scope.kind === 'all' ? 'Scan all photos' : scope.kind === 'year' ? `Scan ${scope.year}` : `Scan ${scope.name}`;
   const canUndo = lastRun && (lastRun.trashedIds.length > 0 || Boolean(lastRun.inFlightIds?.length)) && lastRun.status !== 'restored';
   const analyzedPct = stats && stats.candidates ? Math.round((100 * stats.analyzed) / stats.candidates) : 100;
@@ -151,11 +159,24 @@ function App() {
   return (
     <div className="panel">
       <header className="panel-header brand">
-        <h1>Photo Cleanup</h1>
-        <span className="eyebrow num">{indexed.toLocaleString()} photos indexed</span>
+        <div>
+          <h1>Photo Cleanup</h1>
+          <span className="eyebrow num">{indexed.toLocaleString()} photos indexed</span>
+        </div>
+        <button className="pill-button" onClick={openSettings} title="Connection details are in Settings">
+          <StatusPill state={connectionState(adapter.test, adapter.error, adapter.testing)} />
+        </button>
       </header>
 
-      <SelfTestPanel test={adapter.test} error={adapter.error} testing={adapter.testing} onRetry={() => adapter.ready({ fresh: true }).catch(() => {})} />
+      {adapter.error && (
+        <Callout tone="error">
+          Can't reach Amazon Photos. Details are under{' '}
+          <button className="link" onClick={openSettings}>
+            Settings → Connection
+          </button>
+          .
+        </Callout>
+      )}
 
       <section className="card stack">
         <label className="stack" style={{ gap: 'var(--s1)' }}>
@@ -272,11 +293,14 @@ function App() {
         </section>
       )}
 
-      <details className="card">
+      <details className="card" ref={settingsRef}>
         <summary>
           Settings
           <span className="chevron">›</span>
         </summary>
+        <div style={{ marginTop: 'var(--s4)', paddingBottom: 'var(--s4)', borderBottom: '1px solid var(--line)' }}>
+          <ConnectionSettings test={adapter.test} error={adapter.error} testing={adapter.testing} onRetry={() => adapter.ready({ fresh: true }).catch(() => {})} />
+        </div>
         <SettingsForm
           albums={albums}
           settings={settings}

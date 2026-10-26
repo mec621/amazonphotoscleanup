@@ -15,11 +15,11 @@ const panel = await ctx.newPage();
 panel.on('dialog', (d) => d.accept());
 panel.on('pageerror', (e) => errors.push(`panel: ${e}`));
 await panel.goto(`${ext}/src/ui/sidepanel/index.html`);
-await panel.getByText(/^Connected/).waitFor({ timeout: 20000 });
+await panel.getByText(/^Connected/).first().waitFor({ timeout: 20000 });
 // CLIP needs the Hugging Face hub; keep this test offline and fast.
 await panel.evaluate(() => chrome.storage.local.set({ settings: { useEmbeddings: false } }));
 await panel.reload();
-await panel.getByText(/^Connected/).waitFor({ timeout: 20000 });
+await panel.getByText(/^Connected/).first().waitFor({ timeout: 20000 });
 await panel.getByRole('button', { name: /^Scan/ }).click();
 await panel.getByRole('button', { name: /Open review/ }).waitFor({ timeout: 60000 });
 const panelText = (await panel.locator('body').innerText()).replace(/\s+/g, ' ');

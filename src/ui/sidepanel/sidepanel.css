@@ -1,5 +1,9 @@
 .panel { display: flex; flex-direction: column; gap: var(--s4); padding: var(--s5) var(--s4); max-width: 480px; margin: 0 auto; }
-.panel-header { padding: 0 var(--s1) var(--s1); }
+.panel-header { padding: 0 var(--s1) var(--s1); display: flex; align-items: flex-start; justify-content: space-between; gap: var(--s3); }
+.panel-header .pill-button { height: auto; padding: 0; border: 0; margin-top: 6px; }
+.panel-header .pill-button:hover:not(:disabled) { background: transparent; opacity: 0.8; }
+button.link { height: auto; padding: 0; border: 0; font: inherit; color: inherit; text-decoration: underline; text-underline-offset: 2px; white-space: normal; }
+button.link:hover:not(:disabled) { background: transparent; }
 
 /* Stats: a ruled 2×2 grid with large display numbers */
 .tiles-grid { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--line); }

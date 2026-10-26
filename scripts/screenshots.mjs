@@ -16,7 +16,7 @@ await panel.setViewportSize({ width: 380, height: 900 });
 await panel.goto(`${ext}/src/ui/sidepanel/index.html`);
 await panel.evaluate(() => chrome.storage.local.set({ settings: { useEmbeddings: false }, scope: { kind: 'year', year: 2024 } }));
 await panel.reload();
-await panel.getByText(/^Connected/).waitFor({ timeout: 20000 });
+await panel.getByText(/^Connected/).first().waitFor({ timeout: 20000 });
 await panel.screenshot({ path: `${out}/panel-before-scan.png`, fullPage: true });
 await panel.getByRole('button', { name: /^Scan/ }).click();
 await panel.getByRole('button', { name: /Open review/ }).waitFor({ timeout: 60000 });
