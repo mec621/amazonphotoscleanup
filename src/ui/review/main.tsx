@@ -162,22 +162,20 @@ function App() {
     return d && d.memberKey === memberKey(g) ? d.status : 'undecided';
   };
 
+  /** The year, size and confidence filters; bulk approval of similar shots honours these. */
+  const matchesNarrowing = (g: Group) =>
+    (year === 'all' || new Date(g.capturedAt).getFullYear() === year) && g.members.length >= minSize && (confidence === 'all' || g.confidence === confidence);
+
   const filtered = useMemo(
-    () =>
-      groups.filter(
-        (g) =>
-          (kind === 'all' || g.kind === kind) &&
-          (year === 'all' || new Date(g.capturedAt).getFullYear() === year) &&
-          g.members.length >= minSize &&
-          (confidence === 'all' || g.confidence === confidence) &&
-          (status === 'all' || statusOf(g) === status),
-      ),
+    () => groups.filter((g) => (kind === 'all' || g.kind === kind) && matchesNarrowing(g) && (status === 'all' || statusOf(g) === status)),
     [groups, decisions, kind, year, minSize, confidence, status],
   );
 
   useEffect(() => setPage(0), [kind, year, minSize, confidence, status]);
 
   const rejects = useMemo(() => rejectsFor(groups, decisions, items), [groups, decisions, items]);
+  const undecidedExact = groups.filter((g) => g.kind === 'exact' && statusOf(g) === 'undecided');
+  const undecidedSimilar = groups.filter((g) => g.kind === 'near' && statusOf(g) === 'undecided' && matchesNarrowing(g));
 
   const onDecide = async (g: Group, d: Decision | null) => {
     const next = new Map(decisions);
@@ -191,15 +189,30 @@ function App() {
     setDecisions(next);
   };
 
-  const approveExact = async () => {
+  /** Accepts the suggested keepers for these groups. */
+  const approveAll = async (targets: Group[]) => {
     const next = new Map(decisions);
-    for (const g of groups) {
-      if (g.kind !== 'exact' || statusOf(g) !== 'undecided') continue;
+    for (const g of targets) {
       const d: Decision = { groupId: g.id, memberKey: memberKey(g), keepIds: g.keepIds, status: 'accepted', decidedAt: Date.now() };
       await putDecision(d);
       next.set(g.id, d);
     }
     setDecisions(next);
+  };
+
+  const approveExact = () => approveAll(undecidedExact);
+
+  const approveSimilar = async () => {
+    const extra = undecidedSimilar.reduce((n, g) => n + g.members.length - g.keepIds.length, 0);
+    const narrowed = year !== 'all' || minSize > 2 || confidence !== 'all';
+    if (
+      !confirm(
+        `Accept the suggested best shot in ${undecidedSimilar.length.toLocaleString()} similar-shot groups${narrowed ? ' (only those matching your filters)' : ''}?\n\n` +
+          `${extra.toLocaleString()} photos will be marked for trash. These are similar, not identical, so scroll through first if you can. Favorites and protected photos stay, and nothing moves until you click "Move to trash".`,
+      )
+    )
+      return;
+    await approveAll(undecidedSimilar);
   };
 
   const apply = async () => {
@@ -247,7 +260,6 @@ function App() {
 
   const pages = Math.max(1, Math.ceil(filtered.length / PAGE));
   const shown = filtered.slice(page * PAGE, page * PAGE + PAGE);
-  const undecidedExact = groups.filter((g) => g.kind === 'exact' && statusOf(g) === 'undecided').length;
 
   const canUndo = lastRun && (lastRun.trashedIds.length > 0 || Boolean(lastRun.inFlightIds?.length)) && lastRun.status !== 'restored';
 
@@ -268,8 +280,11 @@ function App() {
                 Undo last run ({lastRun!.trashedIds.length})
               </button>
             )}
-            <button onClick={approveExact} disabled={busy || !undecidedExact}>
-              Approve exact duplicates ({undecidedExact})
+            <button onClick={approveExact} disabled={busy || !undecidedExact.length}>
+              Approve exact duplicates ({undecidedExact.length})
+            </button>
+            <button onClick={approveSimilar} disabled={busy || !undecidedSimilar.length}>
+              Approve similar shots ({undecidedSimilar.length})
             </button>
             <button className="danger" onClick={apply} disabled={busy || !rejects.length}>
               Move {rejects.length.toLocaleString()} to trash

@@ -32,6 +32,7 @@ Run `npm run watch` while developing, then click reload on the extension card.
 3. **Review** opens a full-page tab with one group per row. The suggested keeper is outlined in green, and each photo has a reason underneath.
    - **Accept** takes the suggestion. Click photos to keep several or swap the keeper. **Keep all** and **Skip** are also there.
    - **Approve all exact duplicates** accepts every undecided checksum group at once.
+   - **Approve similar shots** accepts the suggested best shot in every undecided similar-shot group that matches the year, size and confidence filters, after a confirmation.
 4. **Move N to trash** runs the self-test again, then trashes in batches of up to 50 with a pause between calls. It stops on the first error.
 5. **Undo last run**, in the side panel or the review tab, restores everything from that run while it is still in Amazon's trash.
 
